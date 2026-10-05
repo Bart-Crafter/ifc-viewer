@@ -28,21 +28,17 @@ body {
   padding: 2rem 1.25rem 4rem;
 }
 
+/* The logo file has transparent padding around the mark, so pull it in to line up with the page edge. */
 .brand-logo {
-  height: 36px;
+  height: 84px;
   width: auto;
-  margin-bottom: 1rem;
+  margin: -18px 0 0 -20px;
   display: block;
 }
 
 header h1 {
-  margin: 0 0 0.25rem;
-  font-size: 1.75rem;
-}
-
-.subtitle {
-  color: var(--text-dim);
   margin: 0 0 2rem;
+  font-size: 1.75rem;
 }
 
 .card {
