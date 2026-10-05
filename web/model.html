@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IFC Viewer</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body class="viewer-body">
+    <header class="viewer-header">
+      <img src="/favicon.png" alt="Crafter Engineering" class="brand-mark" />
+      <a href="/" class="back-link">&larr; All models</a>
+      <div class="model-meta">
+        <span id="model-name">Loading…</span>
+        <span id="model-revision"></span>
+      </div>
+      <button id="measure-button" type="button" class="secondary hidden">📏 Ruler</button>
+      <button id="clear-measure-button" type="button" class="secondary hidden">Clear</button>
+      <button id="qr-button" type="button">QR code</button>
+    </header>
+
+    <div id="viewer-container"></div>
+    <div id="viewer-status" class="viewer-status"></div>
+
+    <aside id="property-panel" class="property-panel hidden">
+      <button id="close-panel" class="close-btn" type="button">&times;</button>
+      <div id="property-content"></div>
+    </aside>
+
+    <div id="password-gate" class="modal hidden">
+      <div class="modal-content">
+        <h3 id="password-gate-title">Password required</h3>
+        <form id="password-gate-form">
+          <label>
+            Password
+            <input type="password" id="password-gate-input" autocomplete="current-password" autofocus />
+          </label>
+          <button type="submit">Unlock</button>
+        </form>
+        <p id="password-gate-error" class="error"></p>
+      </div>
+    </div>
+
+    <div id="qr-modal" class="modal hidden">
+      <div class="modal-content">
+        <button id="close-qr" class="close-btn" type="button">&times;</button>
+        <img id="qr-image" alt="QR code" />
+        <p id="qr-url"></p>
+      </div>
+    </div>
+
+    <script type="module" src="/src/viewer.js"></script>
+  </body>
+</html>

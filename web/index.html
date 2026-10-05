@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IFC Viewer</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <img src="/crafter-engineering-logo.png" alt="Crafter Engineering" class="brand-logo" />
+        <h1>IFC Model Viewer</h1>
+        <p class="subtitle">Convert an IFC file once, share a stable QR-coded link forever.</p>
+      </header>
+
+      <section class="card">
+        <h2>Upload a new model</h2>
+        <form id="upload-form">
+          <label>
+            Model name
+            <input type="text" name="name" placeholder="e.g. Block A – Level 3" />
+          </label>
+          <label>
+            IFC file
+            <input type="file" name="file" accept=".ifc" required />
+          </label>
+          <label>
+            Password (optional)
+            <input type="password" name="password" placeholder="Leave blank for a public link" autocomplete="new-password" />
+          </label>
+          <button type="submit">Convert &amp; publish</button>
+        </form>
+        <div id="upload-status"></div>
+      </section>
+
+      <section class="card">
+        <h2>Published models</h2>
+        <div id="model-list">Loading…</div>
+      </section>
+    </div>
+
+    <div id="qr-modal" class="modal hidden">
+      <div class="modal-content">
+        <button id="close-qr" class="close-btn" type="button">&times;</button>
+        <img id="qr-image" alt="QR code" />
+        <p id="qr-url"></p>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

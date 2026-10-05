@@ -1,0 +1,24 @@
+# Render Blueprint: https://render.com/docs/infrastructure-as-code
+# FREE PLAN VERSION: no persistent disk, so uploaded models are erased whenever the service
+# sleeps (after ~15 min idle) or redeploys. Fine for demos; see RENDER-DEPLOY.md to make it permanent.
+services:
+  - type: web
+    name: ifc-viewer
+    runtime: node
+    plan: free
+    # vite and cross-env are devDependencies, so install them explicitly.
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/models
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: UPLOAD_TOKEN # secret needed to publish/revise/delete models; Render generates it
+        generateValue: true
+
+# PAID / PERMANENT STORAGE: change `plan: free` to `plan: starter`, add the block below under this
+# service (indented to match `plan`), and add an env var STORAGE_DIR=/var/data.
+#    disk:
+#      name: models
+#      mountPath: /var/data
+#      sizeGB: 2
