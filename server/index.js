@@ -46,6 +46,8 @@ async function runConversion(id, buffer) {
   const { fragmentBytes, properties } = await convertIfc(buffer);
   await fs.writeFile(path.join(modelDir(id), "model.frag"), fragmentBytes);
   await fs.writeFile(path.join(modelDir(id), "properties.json"), JSON.stringify(properties));
+  // keep the original so viewers can download it
+  await fs.writeFile(path.join(modelDir(id), "original.ifc"), buffer);
 }
 
 function requireUploadToken(req, res, next) {
@@ -117,6 +119,7 @@ api.post("/models", requireUploadToken, upload.single("file"), async (req, res) 
       originalFilename: req.file.originalname,
       createdAt: now,
       updatedAt: now,
+      hasOriginal: true,
       password: req.body.password ? hashPassword(req.body.password) : null,
     };
     await writeMeta(id, meta);
@@ -137,6 +140,7 @@ api.post("/models/:id/revise", requireUploadToken, upload.single("file"), async 
   try {
     await runConversion(id, req.file.buffer);
     meta.revision += 1;
+    meta.hasOriginal = true;
     meta.originalFilename = req.file.originalname;
     meta.updatedAt = new Date().toISOString();
     await writeMeta(id, meta);
@@ -193,6 +197,14 @@ api.get("/models/:id/properties", requireModelPassword, async (req, res) => {
   if (!isValidId(id)) return res.status(400).end();
   res.sendFile(path.join(modelDir(id), "properties.json"), (err) => {
     if (err && !res.headersSent) res.status(404).json({ error: "not found" });
+  });
+});
+
+api.get("/models/:id/download", requireModelPassword, async (req, res) => {
+  const meta = await readMeta(req.params.id);
+  const filename = (meta.originalFilename || `${meta.name || meta.id}.ifc`).replace(/[^\w.\- ]+/g, "_");
+  res.download(path.join(modelDir(req.params.id), "original.ifc"), filename, (err) => {
+    if (err && !res.headersSent) res.status(404).json({ error: "original file not available" });
   });
 });
 

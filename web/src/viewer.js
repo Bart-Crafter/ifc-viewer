@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import * as OBC from "@thatopen/components";
+import CameraControls from "camera-controls";
 import fragmentsWorkerUrl from "@thatopen/fragments/worker?url";
 
 const id = location.pathname.split("/").filter(Boolean).pop();
@@ -103,6 +104,7 @@ async function init() {
   document.title = `${meta.name} — IFC Viewer`;
 
   await ensureUnlocked(meta);
+  setupDownload(meta);
 
   statusEl.textContent = "Loading model…";
 
@@ -114,6 +116,11 @@ async function init() {
   world.renderer = new OBC.SimpleRenderer(components, container);
   world.renderer.showLogo = false; // using our own branding instead
   world.camera = new OBC.SimpleCamera(components);
+  // Mouse: left = orbit, middle = pan, wheel = zoom (right button does nothing).
+  const buttons = world.camera.controls.mouseButtons;
+  buttons.left = CameraControls.ACTION.ROTATE;
+  buttons.middle = CameraControls.ACTION.TRUCK;
+  buttons.right = CameraControls.ACTION.NONE;
 
   components.init();
   world.scene.setup();
@@ -154,6 +161,30 @@ async function init() {
   const raycaster = raycasters.get(world);
   setupPicking(world, raycaster);
   setupRuler(world, raycaster);
+}
+
+function setupDownload(meta) {
+  // Only models uploaded since downloads were added have the original IFC stored.
+  if (!meta.hasOriginal) return;
+  const button = document.getElementById("download-button");
+  button.classList.remove("hidden");
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      const res = await fetch(`/api/models/${id}/download`, { headers: withPasswordHeader() });
+      if (!res.ok) throw new Error(res.statusText);
+      const url = URL.createObjectURL(await res.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = meta.originalFilename || `${meta.name}.ifc`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(`Couldn't download the IFC file: ${err.message}`);
+    } finally {
+      button.disabled = false;
+    }
+  });
 }
 
 function setupPicking(world, raycaster) {

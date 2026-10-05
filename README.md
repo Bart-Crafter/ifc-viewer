@@ -118,3 +118,8 @@ name (with a 🔒 if protected) — only the actual geometry/property data behin
 - Not yet implemented: coordination between multiple linked models
   (federation), area/volume measurement (the same package also exposes
   `AreaMeasurement`/`VolumeMeasurement` if useful later).
+
+## Viewer controls and downloads
+
+- **Mouse:** left button = orbit, middle button = pan, wheel = zoom. (Right button does nothing.)
+- **⬇ IFC button:** downloads the original IFC file. The original is stored with each model from now on, so the button only appears for models uploaded (or revised) after this feature was added. Downloads are protected by the model's view password, if it has one; otherwise anyone with the link can download the IFC.
