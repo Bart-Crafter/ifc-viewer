@@ -140,6 +140,10 @@ async function init() {
 
   const model = fragments.list.get(id);
   if (model?.object) world.scene.three.add(model.object);
+  // Without this the model culls/loads tiles against the wrong view, so parts of the model
+  // (e.g. whole sides of a scaffold) can fail to draw depending on where the camera is.
+  model?.useCamera(world.camera.three);
+  await fragments.core.update(true);
   if (model?.box) {
     const box = await model.box;
     if (box) world.camera.controls.fitToBox(box, true);
