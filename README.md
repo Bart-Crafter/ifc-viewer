@@ -1,125 +1,43 @@
-# IFC Viewer
+# Crafter Engineering — project file sharing
 
-Upload an IFC file, get back a stable model URL + QR code. Re-upload a revision
-later and the same URL/QR keeps working — it now shows the new version.
+A secure site for sharing project files with clients. Each project has a link / QR code that anyone can open, but it only shows a sign-in page: **nobody sees any files unless they are signed in and have been given access.** Inside a project there are three folders — **PDF**, **DWG** and **IFC**. PDFs and IFC models can be viewed in the browser (IFC uses the 3D viewer); every file type can be downloaded by people allowed to.
 
-Built on [That Open](https://github.com/ThatOpen) (`web-ifc` + `@thatopen/fragments`
-+ `@thatopen/components`): IFC is converted server-side into the compact binary
-Fragments format plus a JSON property lookup, so the browser viewer never has to
-parse raw IFC and clicking an element for its properties (fire rating, asset code,
-etc.) stays fast on a phone.
+## Roles (set per project)
 
-## Run it
+| Role | View PDF / IFC | Download | Upload, replace, rename, delete | Manage who has access |
+|---|---|---|---|---|
+| **Viewer** | yes | no | no | no |
+| **Client** | yes | yes | no | no |
+| **Designer** | yes | yes | yes | no |
+| **Admin** (project) | yes | yes | yes | yes |
+
+A **site administrator** can do everything on every project, create projects and manage all accounts (`/admin`). One person can hold different roles on different projects.
+
+- Accounts are created by an admin (site admins on `/admin`, project admins when they add someone by email). A temporary password is shown once; the person must choose their own at first sign-in.
+- **Viewer is "view only" in the site, not tamper-proof.** There are no download buttons, the download links refuse Viewers, PDFs are drawn by the page itself (no browser save/print button) and can't be opened by direct address. A determined technical person can still capture what their browser displays (screenshots, developer tools). For genuinely confidential material, give people Client access only if you trust them with the file.
+- IFC files are converted in the background after upload so they open quickly (status shows on the file).
+- Replacing a file overwrites it and increases its version number. There is no history of old versions and deletion is permanent.
+
+## Run it locally
 
 ```bash
 npm install
 npm run dev
 ```
+Open http://localhost:3000. On first run an admin is created: set `ADMIN_EMAIL` and `ADMIN_PASSWORD` first, or read the generated temporary password in the terminal. Requires Node 22.13+ (uses the built-in SQLite).
 
-Open http://localhost:3000, upload an `.ifc` file, then open the model link.
+Production: `npm run build` then `npm start`. See `RENDER-DEPLOY.md` for Render and the settings (`DATA_DIR`, `MAX_UPLOAD_MB`, `PUBLIC_URL`, …).
 
-## Production
+## How it's built
+- `server/index.js` — Express API: sessions, permissions, projects, members, files, IFC conversion queue, audit log.
+- `server/security.js` — password hashing (scrypt), sessions (random tokens, only a hash is stored), sign-in throttling, cross-site request protection, security headers (strict content-security-policy in production).
+- `server/db.js` — SQLite schema. `server/convert.js` — IFC → compact viewer format + properties.
+- `web/` — Vite pages: sign-in/projects (`index`), project (`project`), admin, 3D viewer (`model`), PDF viewer (`pdf`).
+- Data layout under `DATA_DIR`: `app.db` (accounts, projects, permissions, file records, audit log) and `files/<id>/` (original file, plus converted model for IFC).
 
-```bash
-npm run build
-npm start
-```
-
-`npm start` serves the built frontend and runs on `PORT` (default 3000).
-
-### Environment variables
-
-| Variable       | Default                     | Purpose |
-|----------------|------------------------------|---------|
-| `PORT`         | `3000`                       | Port the server listens on. |
-| `STORAGE_DIR`  | `server/storage`              | Parent directory for converted models (actual files live in `<STORAGE_DIR>/models/<id>/`). Point this at a persistent volume/disk in production — the app stores real files here, not a database. |
-| `UPLOAD_TOKEN` | *(unset = no auth)*           | If set, publishing (`POST /api/models`) and revising (`POST /api/models/:id/revise`) require `Authorization: Bearer <token>`. Viewing/QR stay public either way. Set this before deploying anywhere public. |
-
-## Deploying (Railway)
-
-This app needs a real, always-on process (not a static host) plus a persistent
-disk for `server/storage`, since converted models are stored as files, not in
-a database. [Railway](https://railway.app) fits both requirements with a free
-subdomain + HTTPS out of the box, so it's a reasonable default if you don't
-already have hosting:
-
-1. Create a Railway account and install the CLI: `npm i -g @railway/cli`, then
-   `railway login` (opens your browser — this is your account, not something
-   I can do on your behalf).
-2. From this project folder: `railway init` to create a project, then
-   `railway up` to deploy the current code directly (no GitHub repo needed).
-3. In the Railway dashboard for this service: **Add a Volume**, mount it at
-   e.g. `/data`.
-4. Set two environment variables on the service: `STORAGE_DIR=/data` and
-   `UPLOAD_TOKEN=<a-long-random-secret-you-choose>`.
-5. Railway auto-detects the Node app, runs `npm install` then `npm start`
-   (which itself runs the production build's server), and gives you a public
-   `https://<something>.up.railway.app` URL with HTTPS already handled.
-6. Open that URL, upload your first model, and its QR code will encode that
-   same public URL — printable and stable across future revisions.
-
-To publish or revise a model from the site once `UPLOAD_TOKEN` is set, the
-upload form will prompt you once for the token and remember it in the
-browser after that.
-
-Note the QR code bakes in whatever domain you were on when it was generated —
-if you add a custom domain later (Railway → Settings → Domains) and re-generate
-QR codes after that, they'll point at the new domain instead. Railway's own
-`*.up.railway.app` URL generally keeps working alongside a custom domain, so
-QR codes generated before the switch should still resolve, but confirm that in
-Railway's dashboard for your service before relying on it for anything printed.
-
-## How it works
-
-- `server/convert.js` — runs the IFC → Fragments conversion (`IfcImporter`) and
-  extracts property sets for every element with geometry into a flat JSON map
-  keyed by element ID.
-- `server/index.js` — Express API: upload (`POST /api/models`), revise in place
-  (`POST /api/models/:id/revise`), list/read, serve the fragments/properties
-  files, and generate a QR PNG pointing at `/model/:id`.
-- `web/` — Vite frontend: `index.html` is the upload/browse page, `model.html`
-  is the 3D viewer (Three.js via `@thatopen/components`) with click-to-inspect
-  properties, orange highlight on the selected element, and a length
-  measurement tool (`@thatopen/components-front`'s `LengthMeasurement`).
-- `server/storage/models/<id>/` holds `model.frag`, `properties.json`, and
-  `meta.json` per model. Re-uploading a revision overwrites these in place and
-  bumps `meta.json`'s revision counter — the model ID (and therefore every
-  printed QR code) never changes.
-- Deleting a model (`DELETE /api/models/:id`, token-protected) removes its
-  storage directory entirely — its QR code stops working immediately.
-
-### Per-model passwords
-
-Any model can optionally require a password to *view* (separate from
-`UPLOAD_TOKEN`, which gates publishing/revising). Set one at upload time, or
-add/change/remove one later via the "Add/Change password" button on the home
-page. The password is stored as a salted hash (`crypto.scryptSync`, never
-plaintext) in that model's `meta.json`. A visitor opening a protected model's
-link sees a lock screen; the correct password is remembered in their browser
-after that, same as the upload token. The home page always lists every model's
-name (with a 🔒 if protected) — only the actual geometry/property data behind
-`/api/models/:id/fragments` and `/properties` is gated.
-
-## Notes / next steps
-
-- The Fragments worker is self-hosted via Vite (`@thatopen/fragments/worker`),
-  so viewing doesn't depend on a CDN.
-- Auth is a single shared `UPLOAD_TOKEN` for publishing, plus optional
-  per-model view passwords — no per-user accounts. Fine for one team
-  publishing models, not for multi-tenant use.
-- Large IFC files: `multer` is configured for up to 2 GB uploads and holds the
-  file in memory during conversion; for very large/frequent uploads, consider
-  streaming to disk instead.
-- The measurement tool creates a point on the first double-click on geometry
-  and completes the measurement on the second; press Delete/Backspace to
-  remove the one your cursor is over, or use "Clear" to remove all of them.
-  Measurements are session-only (not saved), and edge-snapping mode is the
-  default.
-- Not yet implemented: coordination between multiple linked models
-  (federation), area/volume measurement (the same package also exposes
-  `AreaMeasurement`/`VolumeMeasurement` if useful later).
-
-## Viewer controls and downloads
-
-- **Mouse:** left button = orbit, middle button = pan, wheel = zoom. (Right button does nothing.)
-- **⬇ IFC button:** downloads the original IFC file. The original is stored with each model from now on, so the button only appears for models uploaded (or revised) after this feature was added. Downloads are protected by the model's view password, if it has one; otherwise anyone with the link can download the IFC.
+## Security notes
+- Every file request is checked on the server against the signed-in user's role for that project; removing someone's access or disabling an account takes effect immediately.
+- Uploads are limited to `.pdf`, `.dwg`, `.ifc`, and the file contents must match the type.
+- Sessions use HttpOnly, SameSite cookies (Secure over HTTPS). State-changing requests must come from the site itself.
+- After 5 failed sign-ins for an account/IP the account is blocked for 15 minutes.
+- Use HTTPS (Render provides it), keep `ADMIN_PASSWORD` private, and back up `DATA_DIR`.

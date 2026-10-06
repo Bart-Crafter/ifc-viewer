@@ -13,7 +13,10 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.join(webRoot, "index.html"),
+        project: path.join(webRoot, "project.html"),
+        admin: path.join(webRoot, "admin.html"),
         model: path.join(webRoot, "model.html"),
+        pdf: path.join(webRoot, "pdf.html"),
       },
     },
   },

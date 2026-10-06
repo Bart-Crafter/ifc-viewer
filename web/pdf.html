@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF — Crafter Engineering</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body class="viewer-body">
+    <header class="viewer-header">
+      <img src="/favicon.png" alt="Crafter Engineering" class="brand-mark" />
+      <a href="/" id="back-link" class="back-link">&larr; Project</a>
+      <div class="model-meta">
+        <span id="file-name">Loading…</span>
+        <span id="page-info"></span>
+      </div>
+      <button id="zoom-out" type="button" class="secondary" title="Zoom out">&minus;</button>
+      <button id="zoom-in" type="button" class="secondary" title="Zoom in">+</button>
+      <button id="zoom-fit" type="button" class="secondary" title="Fit to width">Fit</button>
+      <button id="download-button" type="button" class="secondary hidden">⬇ PDF</button>
+    </header>
+    <div id="pdf-scroll" class="pdf-scroll">
+      <div id="pdf-status" class="pdf-status">Loading…</div>
+      <div id="pdf-pages"></div>
+    </div>
+    <script type="module" src="/src/pdf.js"></script>
+  </body>
+</html>

@@ -2,9 +2,9 @@ import * as THREE from "three";
 import * as OBC from "@thatopen/components";
 import CameraControls from "camera-controls";
 import fragmentsWorkerUrl from "@thatopen/fragments/worker?url";
+import { api } from "./common.js";
 
-const id = location.pathname.split("/").filter(Boolean).pop();
-const PASSWORD_KEY = `ifc-viewer-model-pw-${id}`;
+const id = location.pathname.split("/").filter(Boolean).pop(); // file id from /view/ifc/:id
 const HIGHLIGHT_STYLE = { color: new THREE.Color("orange"), opacity: 1, transparent: false, renderedFaces: 0 };
 const RULER_COLOR = 0xffa500;
 
@@ -16,27 +16,10 @@ const panel = document.getElementById("property-panel");
 const panelContent = document.getElementById("property-content");
 document.getElementById("close-panel").addEventListener("click", () => panel.classList.add("hidden"));
 
-const qrModal = document.getElementById("qr-modal");
-const qrImage = document.getElementById("qr-image");
-const qrUrl = document.getElementById("qr-url");
-document.getElementById("qr-button").addEventListener("click", () => {
-  qrImage.src = `/api/models/${id}/qr.png`;
-  qrUrl.textContent = `${location.origin}/model/${id}`;
-  qrModal.classList.remove("hidden");
-});
-document.getElementById("close-qr").addEventListener("click", () => qrModal.classList.add("hidden"));
-
 const rulerButton = document.getElementById("measure-button");
 const clearRulerButton = document.getElementById("clear-measure-button");
 
-const passwordGate = document.getElementById("password-gate");
-const passwordGateTitle = document.getElementById("password-gate-title");
-const passwordGateForm = document.getElementById("password-gate-form");
-const passwordGateInput = document.getElementById("password-gate-input");
-const passwordGateError = document.getElementById("password-gate-error");
-
 let properties = {};
-let modelPassword = null;
 let fragments = null;
 let selected = null; // { modelId, localId }
 let rulerActive = false;
@@ -46,65 +29,36 @@ let rulerGroup = null; // THREE.Group holding committed ruler lines
 const rulerMeasurements = []; // { line, label, markerA, markerB, a, b }
 const LONG_PRESS_MS = 550;
 
-async function verifyModelPassword(password) {
-  const res = await fetch(`/api/models/${id}/verify-password`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password }),
-  });
-  return res.ok;
-}
-
-function withPasswordHeader() {
-  return modelPassword ? { "X-Model-Password": modelPassword } : {};
-}
-
-async function ensureUnlocked(meta) {
-  if (!meta.passwordProtected) return;
-
-  const stored = localStorage.getItem(PASSWORD_KEY);
-  if (stored && (await verifyModelPassword(stored))) {
-    modelPassword = stored;
-    return;
-  }
-
-  passwordGateTitle.textContent = `"${meta.name}" is password protected`;
-  passwordGateError.textContent = "";
-  passwordGateInput.value = "";
-  passwordGate.classList.remove("hidden");
-  passwordGateInput.focus();
-
-  await new Promise((resolve) => {
-    passwordGateForm.onsubmit = async (event) => {
-      event.preventDefault();
-      const entered = passwordGateInput.value;
-      passwordGateError.textContent = "Checking…";
-      if (await verifyModelPassword(entered)) {
-        localStorage.setItem(PASSWORD_KEY, entered);
-        modelPassword = entered;
-        passwordGate.classList.add("hidden");
-        resolve();
-      } else {
-        passwordGateError.textContent = "Incorrect password.";
-      }
-    };
-  });
+function showProblem(title, html) {
+  nameEl.textContent = title;
+  statusEl.innerHTML = html;
 }
 
 async function init() {
-  const metaRes = await fetch(`/api/models/${id}`);
-  if (!metaRes.ok) {
-    nameEl.textContent = "Model not found";
-    statusEl.textContent = "This model ID does not exist or was removed.";
+  let info;
+  try {
+    info = await api(`/api/files/${encodeURIComponent(id)}`);
+  } catch (err) {
+    if (err.message === "password_change_required") return void (location.href = "/");
+    if (err.status === 401) showProblem("Sign in required", 'Please <a href="/">sign in</a> to open this model.');
+    else if (err.status === 403) showProblem("No access", "Your account hasn't been given access to this project.");
+    else showProblem("Model not found", "This file doesn't exist or was removed.");
     return;
   }
-  const meta = await metaRes.json();
-  nameEl.textContent = meta.name;
-  revisionEl.textContent = `Revision ${meta.revision}`;
-  document.title = `${meta.name} — IFC Viewer`;
+  if (info.folder !== "ifc") return showProblem("Not a 3D model", "This file can't be opened in the 3D viewer.");
 
-  await ensureUnlocked(meta);
-  setupDownload(meta);
+  nameEl.textContent = info.name;
+  revisionEl.textContent = `Version ${info.version}`;
+  document.title = `${info.name} — Crafter Engineering`;
+  document.getElementById("back-link").href = `/p/${info.project.id}`;
+  setupDownload(info);
+
+  if (info.status !== "ready") {
+    return showProblem(
+      info.name,
+      info.status === "failed" ? "This model could not be converted for viewing." : "This model is still being prepared. Reload in a moment."
+    );
+  }
 
   statusEl.textContent = "Loading model…";
 
@@ -135,8 +89,8 @@ async function init() {
   });
 
   const [fragRes, propsRes] = await Promise.all([
-    fetch(`/api/models/${id}/fragments`, { headers: withPasswordHeader() }),
-    fetch(`/api/models/${id}/properties`, { headers: withPasswordHeader() }),
+    fetch(`/api/files/${encodeURIComponent(id)}/fragments`, { credentials: "same-origin" }),
+    fetch(`/api/files/${encodeURIComponent(id)}/properties`, { credentials: "same-origin" }),
   ]);
   if (!fragRes.ok) throw new Error("Could not load converted geometry.");
   properties = propsRes.ok ? await propsRes.json() : {};
@@ -163,27 +117,13 @@ async function init() {
   setupRuler(world, raycaster);
 }
 
-function setupDownload(meta) {
-  // Only models uploaded since downloads were added have the original IFC stored.
-  if (!meta.hasOriginal) return;
+function setupDownload(info) {
+  // Viewer-level access gets no download button (the server also refuses the request).
+  if (!info.canDownload) return;
   const button = document.getElementById("download-button");
   button.classList.remove("hidden");
-  button.addEventListener("click", async () => {
-    button.disabled = true;
-    try {
-      const res = await fetch(`/api/models/${id}/download`, { headers: withPasswordHeader() });
-      if (!res.ok) throw new Error(res.statusText);
-      const url = URL.createObjectURL(await res.blob());
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = meta.originalFilename || `${meta.name}.ifc`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      alert(`Couldn't download the IFC file: ${err.message}`);
-    } finally {
-      button.disabled = false;
-    }
+  button.addEventListener("click", () => {
+    location.href = `/api/files/${encodeURIComponent(id)}/download`;
   });
 }
 

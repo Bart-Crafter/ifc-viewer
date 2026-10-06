@@ -1,24 +1,30 @@
 # Render Blueprint: https://render.com/docs/infrastructure-as-code
-# FREE PLAN VERSION: no persistent disk, so uploaded models are erased whenever the service
-# sleeps (after ~15 min idle) or redeploys. Fine for demos; see RENDER-DEPLOY.md to make it permanent.
+#
+# FREE-PLAN TEST VERSION. The free plan has no persistent disk, so the database (accounts, projects,
+# permissions) and every uploaded file are ERASED whenever the service sleeps (~15 min idle) or redeploys.
+# The first admin is recreated from ADMIN_EMAIL / ADMIN_PASSWORD each time, so you can always sign in,
+# but everything else is lost. Use it for testing only. See RENDER-DEPLOY.md for the paid, permanent setup.
 services:
   - type: web
     name: ifc-viewer
     runtime: node
     plan: free
-    # vite and cross-env are devDependencies, so install them explicitly.
     buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
-    healthCheckPath: /api/models
+    healthCheckPath: /api/auth/me
     envVars:
-      - key: NODE_VERSION
+      - key: NODE_VERSION # needs 22.13+ (built-in SQLite)
         value: "22"
-      - key: UPLOAD_TOKEN # secret needed to publish/revise/delete models; Render generates it
+      - key: ADMIN_EMAIL # Render asks you for this when you create the Blueprint
+        sync: false
+      - key: ADMIN_PASSWORD # generated for you; read it in the service's Environment tab
         generateValue: true
+      - key: MAX_UPLOAD_MB # keep modest on the free plan (512 MB RAM)
+        value: "100"
 
-# PAID / PERMANENT STORAGE: change `plan: free` to `plan: starter`, add the block below under this
-# service (indented to match `plan`), and add an env var STORAGE_DIR=/var/data.
+# PAID / PERMANENT: change `plan: free` to `plan: starter`, add this under the service (same indent as `plan`),
+# and add the env var DATA_DIR=/var/data
 #    disk:
-#      name: models
+#      name: data
 #      mountPath: /var/data
-#      sizeGB: 2
+#      sizeGB: 10

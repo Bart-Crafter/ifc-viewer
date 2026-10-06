@@ -1,7 +1,7 @@
 {
   "name": "ifc-viewer",
   "version": "1.0.0",
-  "description": "",
+  "description": "Secure project file sharing with PDF and 3D IFC viewing",
   "main": "index.js",
   "scripts": {
     "dev": "node server/index.js",
@@ -14,7 +14,7 @@
   "type": "module",
   "private": "true",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "dependencies": {
     "@thatopen/components": "^3.4.8",
@@ -23,6 +23,7 @@
     "express": "^5.2.1",
     "multer": "^2.2.0",
     "nanoid": "^6.0.0",
+    "pdfjs-dist": "^6.4.299",
     "qrcode": "^1.5.4",
     "three": "^0.185.1",
     "web-ifc": "^0.0.77"
