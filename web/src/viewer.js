@@ -3,6 +3,7 @@ import * as OBC from "@thatopen/components";
 import CameraControls from "camera-controls";
 import fragmentsWorkerUrl from "@thatopen/fragments/worker?url";
 import { api } from "./common.js";
+import { createEdgePass } from "./edges.js";
 
 const id = location.pathname.split("/").filter(Boolean).pop(); // file id from /view/ifc/:id
 const HIGHLIGHT_STYLE = { color: new THREE.Color("orange"), opacity: 1, transparent: false, renderedFaces: 0 };
@@ -170,7 +171,7 @@ async function setupShading(model, world) {
       sun.position.copy(center).add(new THREE.Vector3(0.6, 1, 0.45).normalize().multiplyScalar(radius * 2));
       sun.target.position.copy(center);
       sun.target.updateMatrixWorld();
-      sun.intensity = normal.sun * (withShadows ? 1.5 : 1.8); // without shadows, depth has to come from face shading
+      sun.intensity = normal.sun * (withShadows ? 1.7 : 1.8); // without shadows, depth has to come from face shading
       sun.castShadow = withShadows;
       if (withShadows) {
         // fit the sun's shadow box to the model
@@ -187,7 +188,7 @@ async function setupShading(model, world) {
         sun.shadow.radius = 3; // softer edges
       }
     }
-    if (ambient) ambient.intensity = normal.ambient * (withShadows ? 0.75 : 0.45);
+    if (ambient) ambient.intensity = normal.ambient * (withShadows ? 0.55 : 0.45);
     if (withShadows) {
       if (!ground && box) {
         // Catches the model's shadow, so the building sits on something.
@@ -195,6 +196,7 @@ async function setupShading(model, world) {
         ground.rotation.x = -Math.PI / 2;
         ground.position.set(center.x, box.min.y - 0.01, center.z);
         ground.receiveShadow = true;
+        ground.userData.noOutline = true;
         scene.add(ground);
       }
       markMeshes();
@@ -222,6 +224,25 @@ async function setupShading(model, world) {
       localStorage.setItem("viewer-shading", next);
     } catch {}
   }
+
+  // Outlines on/off (on by default, remembered on this device)
+  const edgePass = createEdgePass(world);
+  const edgesButton = document.getElementById("edges-button");
+  let edgesOn = true;
+  try {
+    edgesOn = localStorage.getItem("viewer-edges") !== "off";
+  } catch {}
+  const showEdges = (on) => {
+    edgesOn = on;
+    edgePass.setEnabled(on);
+    edgesButton.classList.toggle("active", on);
+    try {
+      localStorage.setItem("viewer-edges", on ? "on" : "off");
+    } catch {}
+  };
+  edgesButton.classList.remove("hidden");
+  edgesButton.addEventListener("click", () => showEdges(!edgesOn));
+  showEdges(edgesOn);
 
   shadingSelect.classList.remove("hidden");
   shadingSelect.addEventListener("change", () => apply(shadingSelect.value));
