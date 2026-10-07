@@ -36,7 +36,8 @@ async function start() {
         .join("")}
       ${data.files.length > 1 ? `<div class="modal-actions"><a class="button" href="${T}/zip">Download all (.zip, ${fmtSize(total)})</a></div>` : ""}
     </section>
-    <p class="muted small">This link only gives access to the files listed above.</p>`);
+    <p class="muted small">This link only gives access to the files listed above.</p>
+    <p class="legal-note">These files are confidential and may be protected by copyright belonging to Crafter Engineering or to other companies. Please don't copy, share or reuse them beyond the purpose they were sent for without permission.</p>`);
 }
 
 start();

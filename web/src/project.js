@@ -42,8 +42,40 @@ const selected = new Set(); // file ids picked for a quick-send link
 let pollTimer = null;
 
 function shell(inner) {
-  app.innerHTML = `${topbarHtml(user)}<div class="page">${inner}</div>`;
+  app.innerHTML = `${topbarHtml(user)}<div class="page">${inner}${legalFooter()}</div>`;
   wireTopbar(app, { afterSignOut: () => location.reload() });
+}
+
+// ---------- copyright / sharing rights ----------
+const LEGAL_NOTICE =
+  "Files on this site are confidential and may be protected by copyright belonging to Crafter Engineering or to other companies. Do not copy, share or reuse them without permission. If you think something here shouldn't be, tell your Crafter Engineering contact and we will review it promptly.";
+const legalFooter = () => `<p class="legal-note">${esc(LEGAL_NOTICE)}</p>`;
+
+// Asked once per browser session before any upload; the server also requires it (and records it).
+function confirmRights() {
+  try {
+    if (sessionStorage.getItem("rights-confirmed") === "1") return Promise.resolve(true);
+  } catch {}
+  return new Promise((resolve) => {
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `
+      <h3>Before you upload</h3>
+      <p>Anything uploaded here can be seen by the people with access to the folder, and (in public folders) by anyone holding the project QR code.</p>
+      <p>Check the file doesn't contain material that belongs to someone else that we haven't been given permission to share: other companies' drawings or title blocks (including external references), Ordnance Survey or other map data, manufacturers' CAD, photographs, or extracts of standards.</p>
+      <label class="check-line"><input type="checkbox" id="rights-ok" /> <span>I confirm Crafter Engineering has the right to share this file with the people who can open this folder.</span></label>
+      <div class="modal-actions"><button type="button" class="secondary" data-cancel>Cancel</button><button type="button" data-go disabled>Continue</button></div>`;
+    const { close } = openModal(wrap);
+    const go = wrap.querySelector("[data-go]");
+    wrap.querySelector("#rights-ok").addEventListener("change", (e) => (go.disabled = !e.target.checked));
+    wrap.querySelector("[data-cancel]").addEventListener("click", () => (close(), resolve(false)));
+    go.addEventListener("click", () => {
+      try {
+        sessionStorage.setItem("rights-confirmed", "1");
+      } catch {}
+      close();
+      resolve(true);
+    });
+  });
 }
 
 function loginScreen(message) {
@@ -53,6 +85,7 @@ function loginScreen(message) {
       <h1>${esc(info.name)}</h1>
       <p class="muted">${esc(message)}</p>
       <div id="login"></div>
+      ${legalFooter()}
     </div>`;
   app.querySelector("#login").append(loginCard({ title: "Sign in to view files", onSuccess: () => location.reload() }));
 }
@@ -262,11 +295,12 @@ function renderFolders() {
 }
 
 async function uploadMany(folder, picked) {
+  if (!picked.length || !(await confirmRights())) return;
   const status = document.querySelector(`[data-status="${folder}"]`);
   for (const file of picked) {
     status.textContent = `Uploading ${file.name}…`;
     try {
-      await uploadFile(`${P}/folders/${folder}/files`, "POST", file, (p) => {
+      await uploadFile(`${P}/folders/${folder}/files?rights=1`, "POST", file, (p) => {
         status.textContent = `Uploading ${file.name}… ${Math.round(p * 100)}%`;
       });
     } catch (err) {
@@ -295,10 +329,10 @@ async function fileAction(action, id) {
       const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")) : "";
       if (ext) input.accept = ext;
       input.addEventListener("change", async () => {
-        if (!input.files[0]) return;
+        if (!input.files[0] || !(await confirmRights())) return;
         const status = document.querySelector(`[data-status="${file.folder}"]`);
         try {
-          await uploadFile(`/api/files/${id}`, "PUT", input.files[0], (p) => {
+          await uploadFile(`/api/files/${id}?rights=1`, "PUT", input.files[0], (p) => {
             status.textContent = `Replacing ${file.name}… ${Math.round(p * 100)}%`;
           });
           toast(`"${file.name}" replaced with the new version.`);
@@ -369,7 +403,7 @@ function showSend() {
     <h3>Send ${chosen.length} file${chosen.length === 1 ? "" : "s"}</h3>
     <ul class="send-list">${chosen.map((f) => `<li>${esc(f.name)} <span class="muted small">${fmtSize(f.size)}</span></li>`).join("")}</ul>
     <label>Message (optional)<textarea name="message" rows="3" maxlength="500" placeholder="e.g. Latest drawings for your review"></textarea></label>
-    <p class="muted small">Anyone you give the link to can download these files, as many times as they like, for 3 days. The link doesn't give access to the project or any other file, and you can cancel it at any time.</p>
+    <p class="muted small"><strong>Only send files we have the right to share</strong> (check for other companies’ drawings, map data, etc.). Anyone you give the link to can download these files, as many times as they like, for 3 days. The link doesn't give access to the project or any other file, and you can cancel it at any time.</p>
     <p class="error" id="send-error"></p>
     <div class="modal-actions"><button type="button" class="secondary" data-close>Cancel</button><button type="button" data-create>Create link</button></div>`;
   const { close } = openModal(wrap);

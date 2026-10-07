@@ -883,7 +883,12 @@ api.get("/projects/:pid/files", projectCtx, needRole("viewer"), async (req, res)
   res.json({ role: req.role, via: req.access.via, folders: folderInfo(req.access, req.role), files });
 });
 
-api.post("/projects/:pid/folders/:folder/files", projectCtx, needRole("designer"), uploadSingle, async (req, res) => {
+// Uploading is a deliberate act of publishing: the person confirms we may share the file (third-party drawings, maps,
+// logos and standards are not ours to share). The page asks, and the server insists, so it is on record.
+const RIGHTS_MESSAGE = "Please confirm you have the right to share this file before uploading it.";
+const needRights = (req, res, next) => (req.query.rights === "1" ? next() : res.status(400).json({ error: RIGHTS_MESSAGE }));
+
+api.post("/projects/:pid/folders/:folder/files", projectCtx, needRole("designer"), needRights, uploadSingle, async (req, res) => {
   const tmp = req.file?.path;
   try {
     const key = req.params.folder;
@@ -905,7 +910,7 @@ api.post("/projects/:pid/folders/:folder/files", projectCtx, needRole("designer"
       throw err;
     }
     invalidate(req.project, key);
-    await audit(req, "file_uploaded", { projectId: req.project.id, fileId: fileKey(req.project, key, entry), detail: `${name} → ${FOLDER_BY_KEY[key].label}` });
+    await audit(req, "file_uploaded", { projectId: req.project.id, fileId: fileKey(req.project, key, entry), detail: `${name} → ${FOLDER_BY_KEY[key].label} (sharing rights confirmed)` });
     res.status(201).json({ id: fileKey(req.project, key, entry), name, folder: key });
   } finally {
     if (tmp) fsp.rm(tmp, { force: true }).catch(() => {});
@@ -982,7 +987,7 @@ function ifcAsset(kind, type) {
 api.get("/files/:fid/fragments", fileCtx, needRole("viewer"), needFolder, loadFile, ifcAsset("frag", "application/octet-stream"));
 api.get("/files/:fid/properties", fileCtx, needRole("viewer"), needFolder, loadFile, ifcAsset("props", "application/json"));
 
-api.put("/files/:fid", fileCtx, needRole("designer"), needFolder, loadFile, uploadSingle, async (req, res) => {
+api.put("/files/:fid", fileCtx, needRole("designer"), needFolder, needRights, loadFile, uploadSingle, async (req, res) => {
   const tmp = req.file?.path;
   try {
     const e = req.entry;

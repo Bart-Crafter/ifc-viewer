@@ -29,6 +29,9 @@ Designers and admins can show the project's QR code and link. Anyone with it can
 ### Quick-send links ("WeTransfer-style")
 Designers and admins can tick files across any folders and create a link that **expires after 3 days** (can be cancelled any time). Anyone with it can download those files (individually or as one zip), as often as they like until it expires. It gives **no access to the project**, other files, or people. The address is shown once when created; only a hash is stored.
 
+### Copyright and sharing rights
+Uploading asks the person to confirm Crafter Engineering has the right to share the file, and the server records it. Pages carry a confidentiality/copyright notice. See [docs/COPYRIGHT-AND-LIABILITY.md](docs/COPYRIGHT-AND-LIABILITY.md) for the risks of hosting files that reference other companies' drawings or licensed data, and the recommended policy.
+
 ### Other notes
 - Accounts are created by an admin. A temporary password is shown once; the person must choose their own at first sign-in.
 - **View-only is "view only" in the site, not tamper-proof.** There are no download buttons, the download links refuse it, PDFs are drawn by the page itself (no browser save/print button) and can't be opened by direct address. A determined technical person can still capture what their browser displays (screenshots, developer tools). For confidential material give Client access only to people you trust with the file, and keep sensitive folders off the public list.
