@@ -1,22 +1,39 @@
 # Crafter Engineering — project file sharing
 
-A secure site for sharing project files with clients. Each project has a link / QR code that anyone can open, but it only shows a sign-in page: **nobody sees any files unless they are signed in and have been given access.** Inside a project there are three folders — **PDF**, **DWG** and **IFC**. PDFs and IFC models can be viewed in the browser (IFC uses the 3D viewer); every file type can be downloaded by people allowed to.
+A secure site for sharing project files with clients, contractors and site workers. Each project is one SharePoint *Submissions* folder. The site shows its files in five folders, and PDFs and IFC models can be viewed in the browser (IFC uses the 3D viewer).
 
-## Roles (set per project)
+## Folders
+Inside each project's Submissions folder the site keeps five sub-folders (it creates them if they are missing):
+**01 – PDF · 02 – DWG · 03 – IFC · 04 – CALCS · 05 – OTHER.** 01/02/03 take only PDF/DWG/IFC files; 04 and 05 take any normal file type (programs and scripts such as .exe or .html are refused). Staff can also drop files straight into these folders in SharePoint and they appear on the site.
 
-| Role | View PDF / IFC | Download | Upload, replace, rename, delete | Manage who has access |
-|---|---|---|---|---|
-| **Viewer** | yes | no | no | no |
-| **Client** | yes | yes | no | no |
-| **Designer** | yes | yes | yes | no |
-| **Admin** (project) | yes | yes | yes | yes |
+## Who can do what
+| | View PDF / IFC | Download | Upload, replace, rename, delete | Choose who sees which folder; send quick links | Manage people and roles |
+|---|---|---|---|---|---|
+| **Anyone with the QR / link** (no account) | yes, public folders only | no | no | no | no |
+| **Viewer** | yes | no | no | no | no |
+| **Client** | yes | yes | no | no | no |
+| **Designer** | yes | yes | yes | yes | no |
+| **Admin** (project) | yes | yes | yes | yes | yes |
 
 A **site administrator** can do everything on every project, create projects and manage all accounts (`/admin`). One person can hold different roles on different projects.
 
-- Accounts are created by an admin (site admins on `/admin`, project admins when they add someone by email). A temporary password is shown once; the person must choose their own at first sign-in.
-- **Viewer is "view only" in the site, not tamper-proof.** There are no download buttons, the download links refuse Viewers, PDFs are drawn by the page itself (no browser save/print button) and can't be opened by direct address. A determined technical person can still capture what their browser displays (screenshots, developer tools). For genuinely confidential material, give people Client access only if you trust them with the file.
-- **Files live in SharePoint.** Each project is one SharePoint folder (the project's *4 – Submissions* folder). Files staff add or change there appear on the site automatically. Replacing a file keeps SharePoint's version history; deleting sends it to the SharePoint recycle bin. Removing a project from the site never touches the files.
-- IFC files are converted in the background the first time they are seen, and the converted copy is cached in a `_viewer-cache` subfolder (status shows on the file).
+### The access register (Excel)
+Who is on a project, their role, and which folders they can open are kept in **`Project Access.xlsx`**, in the Submissions folder. It is the single source of truth, so it can be edited **on the website** (project page → *Who can see what*) **or by opening the file in SharePoint/OneDrive** (non-technical staff can do this: Yes/No dropdowns, a Role dropdown). Website edits keep any extra columns or notes added by hand; manual edits take effect within about 15 seconds. If the file is deleted or can't be read, nobody except site administrators can open the project (it fails closed); an admin can re-create it from the project page.
+- Viewers and clients only see the folders ticked for them. Designers and admins always see everything.
+- A person needs an **account** too (admins create them; a temporary password is shown once). A row for someone with no account shows "No account yet" with a *Create account* button.
+- Anyone who can edit that Excel file in SharePoint can change who has access, so keep write access to the Submissions folder to staff you trust.
+
+### Project link / QR code (view only, no sign-in)
+Designers and admins can show the project's QR code and link. Anyone with it can **view** (never download) the folders marked *public* (by default 01 – PDF and 03 – IFC), straight away, no sign-in, which is meant for workers on site. Treat the QR like a key: a project admin can **Reset link** at any time and the old QR/link stops working immediately.
+
+### Quick-send links ("WeTransfer-style")
+Designers and admins can tick files across any folders and create a link that **expires after 3 days** (can be cancelled any time). Anyone with it can download those files (individually or as one zip), as often as they like until it expires. It gives **no access to the project**, other files, or people. The address is shown once when created; only a hash is stored.
+
+### Other notes
+- Accounts are created by an admin. A temporary password is shown once; the person must choose their own at first sign-in.
+- **View-only is "view only" in the site, not tamper-proof.** There are no download buttons, the download links refuse it, PDFs are drawn by the page itself (no browser save/print button) and can't be opened by direct address. A determined technical person can still capture what their browser displays (screenshots, developer tools). For confidential material give Client access only to people you trust with the file, and keep sensitive folders off the public list.
+- **Files live in SharePoint.** Replacing a file keeps SharePoint's version history; deleting sends it to the SharePoint recycle bin. Removing a project from the site never touches the files.
+- IFC files are converted in the background the first time they are seen, and the converted copy is cached in a `_viewer-cache` subfolder next to the model (status shows on the file).
 
 ## Run it locally
 
@@ -29,16 +46,17 @@ Open http://localhost:3000. On first run an admin is created: set `ADMIN_EMAIL` 
 Production: `npm run build` then `npm start`. See `RENDER-DEPLOY.md` for Render and all settings, and `docs/IT-SETUP-SHAREPOINT.md` for the Microsoft 365 side (hand that page to IT).
 
 ## How it's built
-- `server/index.js` — Express API: sessions, permissions, projects, members, files, IFC conversion queue, audit log.
+- `server/index.js` — Express API: sessions, per-folder permissions, projects, project link, quick-send links, files, IFC conversion queue, audit log. `server/register.js` — reads/writes the `Project Access.xlsx` register.
 - `server/security.js` — password hashing (scrypt), sessions (random tokens, only a hash is stored), sign-in throttling, cross-site request protection, security headers (strict content-security-policy in production).
 - `server/db.js` — PostgreSQL schema (hosted, or embedded PGlite for development). `server/convert.js` — IFC → compact viewer format + properties.
 - `server/storage-backends/` — where files live: `graph.js` (SharePoint via Microsoft Graph) or `local.js` (development folder). `scripts/Grant-ProjectFolder.ps1` — IT script that grants the app one folder.
-- `web/` — Vite pages: sign-in/projects (`index`), project (`project`), admin, 3D viewer (`model`), PDF viewer (`pdf`).
-- Data: accounts, permissions and the audit log are in Postgres; files are in SharePoint. The app can only see folders IT has explicitly granted it (Microsoft *Selected* permissions), and every request is checked against the signed-in user's role first.
+- `web/` — Vite pages: sign-in/projects (`index`), project (`project`), admin, 3D viewer (`model`), PDF viewer (`pdf`), quick-link download page (`share`).
+- Data: accounts, the audit log and quick-link records are in Postgres; files **and the access register** are in SharePoint. The app can only see folders IT has explicitly granted it (Microsoft *Selected* permissions), and every request is checked against the person's role and folder access first.
 
 ## Security notes
-- Every file request is checked on the server against the signed-in user's role for that project; removing someone's access or disabling an account takes effect immediately.
-- Uploads are limited to `.pdf`, `.dwg`, `.ifc`, and the file contents must match the type.
+- Every file request is checked on the server against the person's role and folder access; changes made on the site apply at once, and manual Excel edits within about 15 seconds. Disabling an account takes effect immediately.
+- PDF/DWG/IFC uploads must match their type (checked by contents); 04/05 refuse executable and script types. Everything is served as a download or through the page's own viewer, never as a web page.
+- The project link and quick-link tokens are long random values; quick links are stored as hashes, expire after 3 days and can be cancelled. Repeated bad guesses are blocked.
 - Sessions use HttpOnly, SameSite cookies (Secure over HTTPS). State-changing requests must come from the site itself.
 - After 5 failed sign-ins for an account/IP the account is blocked for 15 minutes.
 - Use HTTPS (Render provides it), keep `ADMIN_PASSWORD`, `DATABASE_URL` and the Microsoft client secret private. Back-up of files is SharePoint's job; the database holds only accounts, permissions and logs.

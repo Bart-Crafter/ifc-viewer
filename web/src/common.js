@@ -199,7 +199,7 @@ export const ROLE_LABELS = {
 export const ROLE_HELP = {
   viewer: "View PDFs and IFC models only. No downloads.",
   client: "View and download files.",
-  designer: "View, download, upload, replace, rename and delete files.",
+  designer: "View, download, upload, replace, rename and delete files. Decide who sees which folder and send quick links.",
   admin: "Everything a Designer can do, plus manage who has access.",
 };
 

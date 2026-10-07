@@ -165,6 +165,47 @@ export function createGraphBackend({ tenantId, clientId, clientSecret, graphBase
   return {
     kind: "sharepoint",
 
+    // Make sure the named sub-folders exist under the ref; returns { name: itemId }.
+    async ensureFolders(ref, names) {
+      const found = {};
+      const scan = async () => {
+        let next = `${folderUrl(ref)}/children?$select=id,name,folder&$top=200`;
+        while (next) {
+          const page = await graph(next);
+          for (const it of page.value) if (it.folder) found[it.name] = it.id;
+          next = page["@odata.nextLink"];
+        }
+      };
+      await scan();
+      for (const name of names) {
+        if (found[name]) continue;
+        try {
+          const made = await graph(`${folderUrl(ref)}/children`, {
+            method: "POST",
+            json: { name, folder: {}, "@microsoft.graph.conflictBehavior": "fail" },
+          });
+          found[name] = made.id;
+        } catch (err) {
+          if (err.code !== "exists") throw err;
+          await scan();
+        }
+      }
+      return Object.fromEntries(names.map((n) => [n, found[n]]));
+    },
+    // A small named file directly inside the ref (used for the access register workbook).
+    async readNamed(ref, name) {
+      const res = await graph(`${childUrl(ref, name)}/content`, { raw: true });
+      if (res.status === 404) {
+        await res.arrayBuffer().catch(() => {});
+        return null;
+      }
+      if (!res.ok) throw await failure(res);
+      return Buffer.from(await res.arrayBuffer());
+    },
+    async writeNamed(ref, name, buffer) {
+      await upload(childUrl(ref, name), bufferSource(buffer), "replace");
+    },
+
     // Resolve a folder the app has been granted, from ids or a pasted SharePoint URL.
     async describeFolder({ driveId, itemId, url }) {
       let it;

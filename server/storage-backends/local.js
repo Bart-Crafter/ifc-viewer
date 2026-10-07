@@ -6,8 +6,9 @@ import { StorageError } from "./errors.js";
 // Development / test backend: each project is a plain folder on disk, shaped like a SharePoint folder
 // (flat list of files plus a hidden "_viewer-cache" subfolder). File ids are the encoded file name.
 export function createLocalBackend({ rootDir }) {
-  const dirOf = (project) => path.join(rootDir, project.id);
-  const cacheDirOf = (project) => path.join(dirOf(project), "_viewer-cache");
+  // A "ref" is a folder: { path } relative to rootDir (the project's folder, or one of its sub-folders).
+  const dirOf = (ref) => path.join(rootDir, ref.path);
+  const cacheDirOf = (ref) => path.join(dirOf(ref), "_viewer-cache");
   const idOf = (name) => Buffer.from(name, "utf8").toString("base64url");
   const nameOf = (id) => Buffer.from(String(id), "base64url").toString("utf8");
   const safe = (name) => name && name === path.basename(name) && !name.startsWith(".");
@@ -35,6 +36,23 @@ export function createLocalBackend({ rootDir }) {
 
   return {
     kind: "local",
+
+    // Make sure the named sub-folders exist; returns { name: id }. Locally the name is the id.
+    async ensureFolders(ref, names) {
+      const out = {};
+      for (const name of names) {
+        await fsp.mkdir(path.join(dirOf(ref), name), { recursive: true });
+        out[name] = name;
+      }
+      return out;
+    },
+    async readNamed(ref, name) {
+      return fsp.readFile(path.join(dirOf(ref), name)).catch(() => null);
+    },
+    async writeNamed(ref, name, buffer) {
+      await fsp.mkdir(dirOf(ref), { recursive: true });
+      await fsp.writeFile(path.join(dirOf(ref), name), buffer);
+    },
     async describeFolder() {
       return { name: null };
     },

@@ -611,3 +611,27 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .modal-left p { word-break: normal; font-size: 0.9rem; margin: 0 0 1rem; }
 .modal-left .hint { font-size: 0.8rem; }
+
+/* ---------- quick-send, access matrix, link banner ---------- */
+textarea {
+  display: block;
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.55rem 0.65rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.95rem;
+  resize: vertical;
+}
+.send-bar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.send-bar p { margin: 0.15rem 0 0; }
+.send-list { margin: 0 0 1rem; padding-left: 1.2rem; max-height: 10rem; overflow: auto; }
+.pick { width: 1.1rem; height: 1.1rem; flex: none; margin: 0; accent-color: var(--accent); }
+.access-table th.check-cell, .access-table td.check-cell { text-align: center; width: 5.5rem; }
+.access-table input[type="checkbox"] { width: 1.1rem; height: 1.1rem; margin: 0; accent-color: var(--accent); }
+.access-table tr.public-row td { background: var(--surface-2); }
+.warn-list { color: var(--warn, #e0a030); margin: 0 0 1rem; padding-left: 1.2rem; font-size: 0.88rem; }
+.share-message { margin: 0; white-space: pre-wrap; }

@@ -17,6 +17,7 @@ export default defineConfig({
         admin: path.join(webRoot, "admin.html"),
         model: path.join(webRoot, "model.html"),
         pdf: path.join(webRoot, "pdf.html"),
+        share: path.join(webRoot, "share.html"),
       },
     },
   },

@@ -32,14 +32,15 @@ Install-Module Microsoft.Graph.Authentication -Scope CurrentUser    # first time
 
 - Several folders at once: pass a comma-separated list to `-FolderUrl`.
 - It prints a **Project code** (looks like `b!abc…|01XYZ…`). Send that to whoever creates the project on the portal; they paste it into *New project*.
-- The app gets the **write** role (list, read, upload, replace, rename, delete) on that folder and its contents only. If deleting from the portal later fails with "accessDenied", re-run with `-Role owner`.
+- The app gets the **write** role (list, read, upload, replace, rename, delete) on that folder and everything inside it only (including creating the sub-folders above). If deleting from the portal later fails with "accessDenied", re-run with `-Role owner`.
 - Granting breaks permission inheritance on that one folder (how Microsoft's *Selected* permissions work). Staff access to it does not change.
 
 ## What the portal does in each granted folder
 
-- Lists the PDF / DWG / IFC files in the folder (not subfolders).
+- Creates (if missing) five sub-folders: `01 – PDF`, `02 – DWG`, `03 – IFC`, `04 – CALCS`, `05 – OTHER`, and one Excel file, **`Project Access.xlsx`**, in the Submissions folder. The Excel file is the project's access list (who has which role and which folders they can open). Staff can edit it directly in SharePoint, so **whoever can edit the Submissions folder can change who has access to the website project**: keep that to trusted staff. Nothing else is needed on your side.
+- Lists the files in those five folders (files placed directly in the Submissions folder itself are ignored).
 - Uploads, replaces, renames, deletes on behalf of signed-in portal users who have the Designer/Admin role. Deleted files go to the normal SharePoint recycle bin; replaced files keep SharePoint's version history.
-- Creates one subfolder, `_viewer-cache`, holding converted copies of IFC models so they open quickly. It is safe to delete; it is rebuilt automatically.
+- Creates a `_viewer-cache` subfolder inside a folder that holds IFC models, with converted copies so they open quickly. It is safe to delete; it is rebuilt automatically.
 
 ## Taking access away
 

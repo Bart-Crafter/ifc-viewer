@@ -58,7 +58,7 @@ async function init() {
     else showProblem("Model not found", "This file doesn't exist or was removed.");
     return;
   }
-  if (info.folder !== "ifc") return showProblem("Not a 3D model", "This file can't be opened in the 3D viewer.");
+  if (info.type !== "ifc") return showProblem("Not a 3D model", "This file can't be opened in the 3D viewer.");
 
   nameEl.textContent = info.name;
   revisionEl.textContent = info.modified ? `Updated ${new Date(info.modified).toLocaleDateString()}` : "";
