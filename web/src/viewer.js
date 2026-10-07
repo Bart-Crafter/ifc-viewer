@@ -277,8 +277,8 @@ function setupDownload(info) {
 
 // ---------- selecting an element: press and hold ----------
 // A plain click or drag never selects, so orbiting the model can't select things by accident. Holding still on an
-// element for HOLD_MS selects it (a ring shows the hold building up), on a mouse and on a touch screen alike.
-const HOLD_MS = 500;
+// element for HOLD_MS (one second) selects it, on a mouse and on a touch screen alike.
+const HOLD_MS = 1000;
 const HOLD_MOVE_TOLERANCE = 8; // px the pointer may drift before it counts as a drag
 
 async function clearSelection() {
@@ -293,16 +293,11 @@ async function clearSelection() {
 
 function setupPicking(world, raycaster) {
   const dom = world.renderer.three.domElement;
-  const ring = document.createElement("div");
-  ring.className = "hold-ring hidden";
-  document.body.append(ring);
   let hold = null;
 
   function cancelHold() {
     if (!hold) return;
-    clearTimeout(hold.ringTimer);
     clearTimeout(hold.timer);
-    ring.classList.add("hidden");
     hold = null;
   }
 
@@ -340,14 +335,6 @@ function setupPicking(world, raycaster) {
     const start = { x: event.clientX, y: event.clientY };
     hold = {
       start,
-      ringTimer: setTimeout(() => {
-        ring.style.left = `${start.x}px`;
-        ring.style.top = `${start.y}px`;
-        ring.classList.remove("hidden");
-        ring.style.animation = "none";
-        void ring.offsetWidth; // restart the animation
-        ring.style.animation = `hold-ring ${HOLD_MS - 160}ms linear forwards`;
-      }, 160),
       timer: setTimeout(() => {
         const { x, y } = start;
         cancelHold();
