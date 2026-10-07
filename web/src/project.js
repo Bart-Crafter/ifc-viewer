@@ -613,10 +613,15 @@ const ACTIONS = {
 
 function renderActivityShell() {
   const card = document.getElementById("activity-card");
-  card.innerHTML = `<div class="folder-head"><h2>Activity</h2><button type="button" class="secondary small" id="load-activity">Show recent activity</button></div><div id="activity-list"></div>`;
-  card.querySelector("#load-activity").addEventListener("click", async (event) => {
+  card.innerHTML = `<div class="folder-head"><h2>Activity</h2><div class="head-actions"><button type="button" class="secondary small hidden" id="refresh-activity">Refresh</button><button type="button" class="secondary small" id="toggle-activity">Show recent activity</button></div></div><div id="activity-list"></div>`;
+  const list = card.querySelector("#activity-list");
+  const toggle = card.querySelector("#toggle-activity");
+  const refresh = card.querySelector("#refresh-activity");
+  let shown = false;
+
+  async function load() {
     const rows = await api(`${P}/activity`).catch((err) => (toast(err.message, "error"), []));
-    card.querySelector("#activity-list").innerHTML = rows.length
+    list.innerHTML = rows.length
       ? `<div class="table-wrap"><table class="table"><thead><tr><th>When</th><th>Who</th><th>What</th></tr></thead><tbody>${rows
           .map(
             (r) =>
@@ -624,8 +629,16 @@ function renderActivityShell() {
           )
           .join("")}</tbody></table></div>`
       : '<p class="muted">Nothing yet.</p>';
-    event.target.textContent = "Refresh";
+  }
+
+  toggle.addEventListener("click", async () => {
+    shown = !shown;
+    list.classList.toggle("hidden", !shown);
+    refresh.classList.toggle("hidden", !shown);
+    toggle.textContent = shown ? "Hide activity" : "Show recent activity";
+    if (shown) await load();
   });
+  refresh.addEventListener("click", load);
 }
 
 start();

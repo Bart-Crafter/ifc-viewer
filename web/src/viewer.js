@@ -15,7 +15,7 @@ const statusEl = document.getElementById("viewer-status");
 const container = document.getElementById("viewer-container");
 const panel = document.getElementById("property-panel");
 const panelContent = document.getElementById("property-content");
-document.getElementById("close-panel").addEventListener("click", () => panel.classList.add("hidden"));
+document.getElementById("close-panel").addEventListener("click", () => clearSelection());
 
 const rulerButton = document.getElementById("measure-button");
 const clearRulerButton = document.getElementById("clear-measure-button");
@@ -47,7 +47,16 @@ function showProblem(title, html) {
   statusEl.innerHTML = html;
 }
 
+// The property panel sits just under the header on phones; the header can be one or two rows tall.
+function trackHeaderHeight() {
+  const header = document.querySelector(".viewer-header");
+  const set = () => document.documentElement.style.setProperty("--viewer-header-h", `${header.offsetHeight}px`);
+  set();
+  new ResizeObserver(set).observe(header);
+}
+
 async function init() {
+  trackHeaderHeight();
   let info;
   try {
     info = await api(`/api/files/${encodeURIComponent(id)}`);
@@ -127,6 +136,7 @@ async function init() {
   const raycasters = components.get(OBC.Raycasters);
   const raycaster = raycasters.get(world);
   setupPicking(world, raycaster);
+  setupHint();
   setupRuler(world, raycaster);
   setupShading(model, world);
 }
@@ -265,18 +275,40 @@ function setupDownload(info) {
   });
 }
 
+// ---------- selecting an element: press and hold ----------
+// A plain click or drag never selects, so orbiting the model can't select things by accident. Holding still on an
+// element for HOLD_MS selects it (a ring shows the hold building up), on a mouse and on a touch screen alike.
+const HOLD_MS = 500;
+const HOLD_MOVE_TOLERANCE = 8; // px the pointer may drift before it counts as a drag
+
+async function clearSelection() {
+  const previous = selected;
+  panel.classList.add("hidden");
+  if (!previous) return;
+  selected = null;
+  await fragments.resetHighlight({ [previous.modelId]: [previous.localId] });
+  await syncClaySelection(previous, null);
+  await fragments.core.update(true);
+}
+
 function setupPicking(world, raycaster) {
   const dom = world.renderer.three.domElement;
+  const ring = document.createElement("div");
+  ring.className = "hold-ring hidden";
+  document.body.append(ring);
+  let hold = null;
 
-  dom.addEventListener("click", async (event) => {
-    if (rulerActive) return;
+  function cancelHold() {
+    if (!hold) return;
+    clearTimeout(hold.ringTimer);
+    clearTimeout(hold.timer);
+    ring.classList.add("hidden");
+    hold = null;
+  }
 
+  async function pickAt(clientX, clientY) {
     const rect = dom.getBoundingClientRect();
-    const position = new THREE.Vector2(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1
-    );
-
+    const position = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     const result = await raycaster.castRay({ position });
 
     const previous = selected;
@@ -298,7 +330,65 @@ function setupPicking(world, raycaster) {
     await fragments.core.update(true);
 
     showProperties(result.localId);
+    hideHint(true); // they've worked it out
+  }
+
+  dom.addEventListener("pointerdown", (event) => {
+    cancelHold();
+    // only a single primary press counts (a second finger means pinch/pan, not select)
+    if (rulerActive || !event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+    const start = { x: event.clientX, y: event.clientY };
+    hold = {
+      start,
+      ringTimer: setTimeout(() => {
+        ring.style.left = `${start.x}px`;
+        ring.style.top = `${start.y}px`;
+        ring.classList.remove("hidden");
+        ring.style.animation = "none";
+        void ring.offsetWidth; // restart the animation
+        ring.style.animation = `hold-ring ${HOLD_MS - 160}ms linear forwards`;
+      }, 160),
+      timer: setTimeout(() => {
+        const { x, y } = start;
+        cancelHold();
+        navigator.vibrate?.(25);
+        pickAt(x, y);
+      }, HOLD_MS),
+    };
   });
+  dom.addEventListener("pointermove", (event) => {
+    if (hold && Math.hypot(event.clientX - hold.start.x, event.clientY - hold.start.y) > HOLD_MOVE_TOLERANCE) cancelHold();
+  });
+  for (const type of ["pointerup", "pointercancel", "pointerleave", "wheel"]) dom.addEventListener(type, cancelHold, { passive: true });
+  dom.addEventListener("contextmenu", (event) => event.preventDefault()); // long-press must not open the phone's menu
+}
+
+// ---------- controls hint ----------
+const hintEl = document.getElementById("viewer-hint");
+const touchDevice = matchMedia("(pointer: coarse)").matches;
+const HINT_TEXT = touchDevice
+  ? "Drag to rotate · Pinch to zoom · Two fingers to pan · <strong>Press and hold</strong> an element to select it"
+  : "Drag to rotate · Scroll to zoom · Middle mouse to pan · <strong>Press and hold</strong> an element to select it";
+
+function showHint() {
+  hintEl.innerHTML = `<span>${HINT_TEXT}</span><button type="button" aria-label="Hide tip">&times;</button>`;
+  hintEl.classList.remove("hidden");
+  hintEl.querySelector("button").addEventListener("click", () => hideHint(true));
+}
+function hideHint(remember) {
+  hintEl.classList.add("hidden");
+  if (!remember) return;
+  try {
+    localStorage.setItem("viewer-hint-seen", "1");
+  } catch {}
+}
+function setupHint() {
+  document.getElementById("help-button").addEventListener("click", () => (hintEl.classList.contains("hidden") ? showHint() : hideHint(false)));
+  let seen = false;
+  try {
+    seen = localStorage.getItem("viewer-hint-seen") === "1";
+  } catch {}
+  if (!seen) showHint();
 }
 
 function setupRuler(world, raycaster) {
