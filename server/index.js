@@ -114,6 +114,20 @@ await bootstrapAdmin();
 const app = express();
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
+
+// Health check for the host: answers without touching the database or sessions.
+app.get("/healthz", (req, res) => res.type("text").send("ok"));
+
+// Log the first requests, so a deploy that "starts" but never answers is visible in the host's log.
+let logged = 0;
+app.use((req, res, next) => {
+  if (logged < 25) {
+    logged++;
+    const t = Date.now();
+    res.on("finish", () => console.log(`Request ${req.method} ${req.originalUrl.split("?")[0]} -> ${res.statusCode} (${Date.now() - t} ms)`));
+  }
+  next();
+});
 app.use(securityHeaders(isProd));
 app.use(express.json({ limit: "100kb" }));
 
@@ -825,6 +839,16 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Something went wrong on the server." });
 });
 
+const mb = (n) => Math.round(n / 1048576);
 app.listen(port, () => {
-  console.log(`Project file site running at http://localhost:${port}`);
+  console.log(`Project file site running at http://localhost:${port} (memory ${mb(process.memoryUsage().rss)} MB)`);
 });
+
+// Once a minute: memory use, and how late the event loop is running (a stalled server shows up here).
+let last = Date.now();
+setInterval(() => {
+  const lag = Date.now() - last - 60_000;
+  last = Date.now();
+  const m = process.memoryUsage();
+  console.log(`Heartbeat: memory ${mb(m.rss)} MB (heap ${mb(m.heapUsed)} MB), event-loop delay ${Math.max(0, lag)} ms`);
+}, 60_000).unref();
