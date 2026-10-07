@@ -278,6 +278,13 @@ button.link {
   z-index: 10;
 }
 
+.viewer-header select.shading-select {
+  width: auto;
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.85rem;
+}
+
 .brand-mark {
   height: 24px;
   width: 24px;

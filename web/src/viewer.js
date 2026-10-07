@@ -18,6 +18,18 @@ document.getElementById("close-panel").addEventListener("click", () => panel.cla
 
 const rulerButton = document.getElementById("measure-button");
 const clearRulerButton = document.getElementById("clear-measure-button");
+const shadingSelect = document.getElementById("shading-select");
+const CLAY_COLOR = new THREE.Color(0xd9d9d9);
+let clayModel = null; // the model, while the Clay shading style is active
+
+// In Clay every element has an override colour, which the normal highlight can't beat, so the selected
+// element is coloured explicitly (and put back to clay when deselected).
+async function syncClaySelection(previous, next) {
+  if (!clayModel) return;
+  if (previous) await clayModel.setColor([previous.localId], CLAY_COLOR);
+  if (next) await clayModel.setColor([next.localId], HIGHLIGHT_STYLE.color);
+  await fragments.core.update(true);
+}
 
 let properties = {};
 let fragments = null;
@@ -115,6 +127,68 @@ async function init() {
   const raycaster = raycasters.get(world);
   setupPicking(world, raycaster);
   setupRuler(world, raycaster);
+  setupShading(model);
+}
+
+// ---------- shading styles ----------
+// Shaded = as modelled. X-ray = see-through. Clay = one neutral colour (shape without distraction). Wireframe = edges only.
+function setupShading(model) {
+  if (!model) return;
+  let mode = "shaded";
+
+  // Tiles stream in as the camera moves, so wireframe is applied to meshes as they appear. Materials already
+  // switched are remembered, so nothing is recompiled twice (recompiling every frame would freeze the page).
+  const wired = new Set();
+  const setWireframe = (on) => {
+    model.object?.traverse((child) => {
+      for (const material of [].concat(child.material ?? [])) {
+        if (!("wireframe" in material)) continue;
+        if (on && !wired.has(material)) {
+          material.wireframe = true;
+          material.needsUpdate = true;
+          wired.add(material);
+        } else if (!on && wired.has(material)) {
+          material.wireframe = false;
+          material.needsUpdate = true;
+          wired.delete(material);
+        }
+      }
+    });
+  };
+  model.onViewUpdated.add(() => {
+    if (mode === "wireframe") setWireframe(true);
+  });
+
+  async function apply(next) {
+    mode = next;
+    clayModel = next === "clay" ? model : null;
+    await model.resetOpacity(undefined);
+    await model.resetColor(undefined);
+    setWireframe(false);
+    if (next === "xray") await model.setOpacity(undefined, 0.25);
+    else if (next === "clay") await model.setColor(undefined, CLAY_COLOR);
+    else if (next === "wireframe") setWireframe(true);
+    await fragments.core.update(true);
+    if (mode === "wireframe") setWireframe(true); // meshes created by the update above
+    if (selected) {
+      await fragments.highlight(HIGHLIGHT_STYLE, { [selected.modelId]: [selected.localId] });
+      await syncClaySelection(null, selected);
+    }
+    try {
+      localStorage.setItem("viewer-shading", next);
+    } catch {}
+  }
+
+  shadingSelect.classList.remove("hidden");
+  shadingSelect.addEventListener("change", () => apply(shadingSelect.value));
+  let saved = "shaded";
+  try {
+    saved = localStorage.getItem("viewer-shading") || "shaded";
+  } catch {}
+  if (saved !== "shaded" && [...shadingSelect.options].some((o) => o.value === saved)) {
+    shadingSelect.value = saved;
+    apply(saved);
+  }
 }
 
 function setupDownload(info) {
@@ -141,6 +215,7 @@ function setupPicking(world, raycaster) {
 
     const result = await raycaster.castRay({ position });
 
+    const previous = selected;
     if (selected) {
       await fragments.resetHighlight({ [selected.modelId]: [selected.localId] });
       selected = null;
@@ -148,12 +223,14 @@ function setupPicking(world, raycaster) {
 
     if (!result || result.localId === undefined || result.localId === null || !result.fragments) {
       panel.classList.add("hidden");
+      await syncClaySelection(previous, null);
       await fragments.core.update(true);
       return;
     }
 
     selected = { modelId: result.fragments.modelId, localId: result.localId };
     await fragments.highlight(HIGHLIGHT_STYLE, { [selected.modelId]: [selected.localId] });
+    await syncClaySelection(previous, selected);
     await fragments.core.update(true);
 
     showProperties(result.localId);
@@ -225,9 +302,11 @@ function setupRuler(world, raycaster) {
     if (!rulerActive) {
       cancelRulerPlacement();
     } else if (selected) {
+      const previous = selected;
       await fragments.resetHighlight({ [selected.modelId]: [selected.localId] });
       selected = null;
       panel.classList.add("hidden");
+      await syncClaySelection(previous, null);
       await fragments.core.update(true);
     }
   });
