@@ -1,10 +1,11 @@
-import { api, esc, fmtDate, loadMe, loginCard, passwordChangeModal, showSecret, toast, topbarHtml, wireTopbar } from "./common.js";
+import { api, esc, fmtDate, loadMe, loginCard, newProjectFormHtml, newProjectPayload, passwordChangeModal, showSecret, toast, topbarHtml, wireTopbar } from "./common.js";
 
 const app = document.getElementById("app");
 let me = null;
 
 async function render() {
-  const [users, projects] = await Promise.all([api("/api/admin/users"), api("/api/projects")]);
+  const [users, projects, storage] = await Promise.all([api("/api/admin/users"), api("/api/projects"), api("/api/storage")]);
+  const storageKind = storage.kind;
   app.innerHTML = `
     ${topbarHtml(me)}
     <div class="page">
@@ -56,9 +57,7 @@ async function render() {
         </table></div>
         <h3>New project</h3>
         <form id="new-project" class="inline-form">
-          <label>Name<input name="name" required maxlength="120" /></label>
-          <label>Description (optional)<input name="description" maxlength="500" /></label>
-          <button type="submit">Create project</button>
+          ${newProjectFormHtml(storageKind)}
         </form>
         <p class="error" id="project-error"></p>
       </section>
@@ -84,7 +83,7 @@ async function render() {
     event.preventDefault();
     const form = event.target;
     try {
-      const project = await api("/api/projects", { method: "POST", json: { name: form.name.value, description: form.description.value } });
+      const project = await api("/api/projects", { method: "POST", json: newProjectPayload(form) });
       location.href = `/p/${project.id}`;
     } catch (err) {
       app.querySelector("#project-error").textContent = err.message;

@@ -3,6 +3,8 @@ import {
   esc,
   loadMe,
   loginCard,
+  newProjectFormHtml,
+  newProjectPayload,
   passwordChangeModal,
   topbarHtml,
   wireTopbar,
@@ -25,6 +27,7 @@ function renderLogin() {
 
 async function renderDashboard(user) {
   const projects = await api("/api/projects");
+  const storageKind = user.isAdmin ? (await api("/api/storage")).kind : null;
   app.innerHTML = `
     ${topbarHtml(user)}
     <div class="page">
@@ -34,9 +37,7 @@ async function renderDashboard(user) {
           ? `<section class="card">
               <h2>New project</h2>
               <form id="new-project" class="inline-form">
-                <label>Name<input name="name" required maxlength="120" placeholder="e.g. 100180 – Shady Lane Car Port" /></label>
-                <label>Description (optional)<input name="description" maxlength="500" /></label>
-                <button type="submit">Create project</button>
+                ${newProjectFormHtml(storageKind)}
               </form>
               <p class="error" id="new-project-error"></p>
             </section>`
@@ -65,7 +66,7 @@ async function renderDashboard(user) {
     event.preventDefault();
     const form = event.target;
     try {
-      const project = await api("/api/projects", { method: "POST", json: { name: form.name.value, description: form.description.value } });
+      const project = await api("/api/projects", { method: "POST", json: newProjectPayload(form) });
       location.href = `/p/${project.id}`;
     } catch (err) {
       app.querySelector("#new-project-error").textContent = err.message;

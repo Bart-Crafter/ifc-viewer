@@ -1,9 +1,10 @@
 # Render Blueprint: https://render.com/docs/infrastructure-as-code
 #
-# FREE-PLAN TEST VERSION. The free plan has no persistent disk, so the database (accounts, projects,
-# permissions) and every uploaded file are ERASED whenever the service sleeps (~15 min idle) or redeploys.
-# The first admin is recreated from ADMIN_EMAIL / ADMIN_PASSWORD each time, so you can always sign in,
-# but everything else is lost. Use it for testing only. See RENDER-DEPLOY.md for the paid, permanent setup.
+# Free-plan setup with NO persistent disk:
+#  - accounts, permissions and the activity log live in a free hosted PostgreSQL database (e.g. Neon): DATABASE_URL
+#  - project files live in the company SharePoint, reached with a Microsoft app: AZURE_*  (see docs/IT-SETUP-SHAREPOINT.md)
+# The web service itself keeps nothing, so it can sleep, restart or redeploy freely. (Free services sleep after ~15 min
+# idle and take about a minute to wake on the next visit.)
 services:
   - type: web
     name: ifc-viewer
@@ -13,18 +14,21 @@ services:
     startCommand: npm start
     healthCheckPath: /api/auth/me
     envVars:
-      - key: NODE_VERSION # needs 22.13+ (built-in SQLite)
+      - key: NODE_VERSION # needs 22.13 or newer
         value: "22"
-      - key: ADMIN_EMAIL # Render asks you for this when you create the Blueprint
+      - key: DATABASE_URL # Postgres connection string (Neon: copy it from the project dashboard)
+        sync: false
+      - key: ADMIN_EMAIL # the first site administrator, created when the database is empty
         sync: false
       - key: ADMIN_PASSWORD # generated for you; read it in the service's Environment tab
         generateValue: true
+      - key: AZURE_TENANT_ID # from IT: docs/IT-SETUP-SHAREPOINT.md
+        sync: false
+      - key: AZURE_CLIENT_ID
+        sync: false
+      - key: AZURE_CLIENT_SECRET
+        sync: false
+      - key: PUBLIC_URL # optional: the site's final address, used inside QR codes
+        sync: false
       - key: MAX_UPLOAD_MB # keep modest on the free plan (512 MB RAM)
         value: "100"
-
-# PAID / PERMANENT: change `plan: free` to `plan: starter`, add this under the service (same indent as `plan`),
-# and add the env var DATA_DIR=/var/data
-#    disk:
-#      name: data
-#      mountPath: /var/data
-#      sizeGB: 10

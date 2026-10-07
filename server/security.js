@@ -33,37 +33,37 @@ const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 const sha = (value) => crypto.createHash("sha256").update(value).digest("hex");
 
 export function createSessions(db) {
-  const insert = db.prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?,?,?,?)");
-  const find = db.prepare(
-    `SELECT u.id, u.email, u.name, u.is_admin, u.must_change, s.expires_at
-       FROM sessions s JOIN users u ON u.id = s.user_id
-      WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled = 0`
-  );
-  const extend = db.prepare("UPDATE sessions SET expires_at = ? WHERE token_hash = ?");
-  const remove = db.prepare("DELETE FROM sessions WHERE token_hash = ?");
-  const removeForUser = db.prepare("DELETE FROM sessions WHERE user_id = ?");
-  const removeOthers = db.prepare("DELETE FROM sessions WHERE user_id = ? AND token_hash != ?");
-  const prune = db.prepare("DELETE FROM sessions WHERE expires_at <= ?");
-
-  setInterval(() => prune.run(Date.now()), 60 * 60 * 1000).unref();
+  setInterval(() => db.run("DELETE FROM sessions WHERE expires_at <= $1", [Date.now()]).catch(() => {}), 60 * 60 * 1000).unref();
 
   return {
-    create(userId) {
+    async create(userId) {
       const token = crypto.randomBytes(32).toString("base64url");
-      insert.run(sha(token), userId, new Date().toISOString(), Date.now() + SESSION_MS);
+      await db.run("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES ($1,$2,$3,$4)", [
+        sha(token),
+        userId,
+        new Date().toISOString(),
+        Date.now() + SESSION_MS,
+      ]);
       return token;
     },
-    lookup(token) {
+    async lookup(token) {
       if (!token) return null;
       const hash = sha(token);
-      const row = find.get(hash, Date.now());
+      const row = await db.one(
+        `SELECT u.id, u.email, u.name, u.is_admin, u.must_change, s.expires_at
+           FROM sessions s JOIN users u ON u.id = s.user_id
+          WHERE s.token_hash = $1 AND s.expires_at > $2 AND u.disabled = 0`,
+        [hash, Date.now()]
+      );
       if (!row) return null;
-      if (row.expires_at - Date.now() < SESSION_MS / 2) extend.run(Date.now() + SESSION_MS, hash);
+      if (row.expires_at - Date.now() < SESSION_MS / 2) {
+        await db.run("UPDATE sessions SET expires_at = $1 WHERE token_hash = $2", [Date.now() + SESSION_MS, hash]);
+      }
       return row;
     },
-    destroy: (token) => token && remove.run(sha(token)),
-    destroyAllForUser: (userId) => removeForUser.run(userId),
-    destroyOthers: (userId, token) => removeOthers.run(userId, sha(token)),
+    destroy: async (token) => token && db.run("DELETE FROM sessions WHERE token_hash = $1", [sha(token)]),
+    destroyAllForUser: (userId) => db.run("DELETE FROM sessions WHERE user_id = $1", [userId]),
+    destroyOthers: (userId, token) => db.run("DELETE FROM sessions WHERE user_id = $1 AND token_hash != $2", [userId, sha(token)]),
     maxAgeMs: SESSION_MS,
   };
 }

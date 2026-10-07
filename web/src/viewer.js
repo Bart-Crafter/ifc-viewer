@@ -48,7 +48,7 @@ async function init() {
   if (info.folder !== "ifc") return showProblem("Not a 3D model", "This file can't be opened in the 3D viewer.");
 
   nameEl.textContent = info.name;
-  revisionEl.textContent = `Version ${info.version}`;
+  revisionEl.textContent = info.modified ? `Updated ${new Date(info.modified).toLocaleDateString()}` : "";
   document.title = `${info.name} — Crafter Engineering`;
   document.getElementById("back-link").href = `/p/${info.project.id}`;
   setupDownload(info);

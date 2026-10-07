@@ -146,7 +146,7 @@ function fileRow(f) {
     <div class="file-row">
       <div class="file-main">
         <span class="file-name">${viewable ? `<a href="${viewUrl}">${esc(f.name)}</a>` : esc(f.name)}</span>
-        <span class="file-meta">${fmtSize(f.size)} · version ${f.version} · ${fmtDate(f.updated_at)}${f.uploaded_by ? ` · ${esc(f.uploaded_by)}` : ""}</span>
+        <span class="file-meta">${fmtSize(f.size)} · ${fmtDate(f.updated_at)}${f.uploaded_by ? ` · ${esc(f.uploaded_by)}` : ""}</span>
       </div>
       <div class="file-status">${status}</div>
       <div class="file-actions">${actions.join("")}</div>
@@ -236,7 +236,7 @@ async function fileAction(action, id) {
           await uploadFile(`/api/files/${id}`, "PUT", input.files[0], (p) => {
             status.textContent = `Replacing ${file.name}… ${Math.round(p * 100)}%`;
           });
-          toast(`"${file.name}" updated to a new version.`);
+          toast(`"${file.name}" replaced with the new version.`);
         } catch (err) {
           toast(err.message, "error");
         }
@@ -287,7 +287,7 @@ async function renameProject() {
 }
 
 async function deleteProject() {
-  const typed = prompt(`This permanently deletes the project and ALL its files.\n\nType the project name to confirm:\n${info.name}`);
+  const typed = prompt(`This removes the project from this site and ends everyone's access to it. The files themselves stay where they are in SharePoint.\n\nType the project name to confirm:\n${info.name}`);
   if (typed !== info.name) return;
   try {
     await api(`/api/projects/${encodeURIComponent(pid)}`, { method: "DELETE" });

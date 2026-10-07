@@ -202,3 +202,23 @@ export const ROLE_HELP = {
   designer: "View, download, upload, replace, rename and delete files.",
   admin: "Everything a Designer can do, plus manage who has access.",
 };
+
+// "New project" form, shared by the dashboard and the admin page. With SharePoint storage a project is a folder there.
+export function newProjectFormHtml(kind) {
+  const sharepoint = kind === "sharepoint";
+  return `
+    ${
+      sharepoint
+        ? `<label>SharePoint folder (address, or the code from IT)<input name="sharepointUrl" required maxlength="2000" placeholder="https://crafterengineering.sharepoint.com/…/4 – Submissions" /></label>
+           <label>Name (optional, defaults to the folder name)<input name="name" maxlength="120" /></label>`
+        : '<label>Name<input name="name" required maxlength="120" placeholder="e.g. 100180 – Shady Lane Car Port" /></label>'
+    }
+    <label>Description (optional)<input name="description" maxlength="500" /></label>
+    <button type="submit">Create project</button>`;
+}
+
+export const newProjectPayload = (form) => ({
+  name: form.name.value,
+  description: form.description.value,
+  sharepointUrl: form.sharepointUrl?.value,
+});
