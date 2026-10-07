@@ -131,8 +131,7 @@ async function init() {
 }
 
 // ---------- shading styles ----------
-// Shadows (default) = a sun-like light casting real shadows, for depth. Shaded = flat, as modelled. X-ray = see-through.
-// Clay = one neutral colour (shape without distraction).
+// Shadows (default) = sun light with cast shadows. Shaded = the same lighting without shadows. Clay = one neutral colour.
 async function setupShading(model, world) {
   if (!model) return;
   let mode = "shaded";
@@ -162,16 +161,19 @@ async function setupShading(model, world) {
     if (mode === "shadows") markMeshes();
   });
 
-  function setShadows(on) {
-    renderer.shadowMap.enabled = on;
+  // Lighting for every style: a directional "sun" from above and to one side, with the general fill turned down, so
+  // faces facing different ways get clearly different brightness instead of one even grey. Shadows switch on top.
+  function setLighting(withShadows) {
+    renderer.shadowMap.enabled = withShadows;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     if (sun) {
-      sun.castShadow = on;
-      if (on) {
-        // Aim the sun from the upper side so walls and floors read clearly; fit its shadow box to the model.
-        sun.position.copy(center).add(new THREE.Vector3(0.6, 1, 0.45).normalize().multiplyScalar(radius * 2));
-        sun.target.position.copy(center);
-        sun.target.updateMatrixWorld();
+      sun.position.copy(center).add(new THREE.Vector3(0.6, 1, 0.45).normalize().multiplyScalar(radius * 2));
+      sun.target.position.copy(center);
+      sun.target.updateMatrixWorld();
+      sun.intensity = normal.sun * (withShadows ? 1.5 : 1.8); // without shadows, depth has to come from face shading
+      sun.castShadow = withShadows;
+      if (withShadows) {
+        // fit the sun's shadow box to the model
         const cam = sun.shadow.camera;
         cam.left = cam.bottom = -radius * 1.1;
         cam.right = cam.top = radius * 1.1;
@@ -182,21 +184,14 @@ async function setupShading(model, world) {
         sun.shadow.mapSize.set(size, size);
         sun.shadow.bias = -0.0004;
         sun.shadow.normalBias = radius * 0.0004;
-        sun.intensity = normal.sun * 1.9; // stronger sun, dimmer fill: shadows and faces separate clearly
-        if (ambient) ambient.intensity = normal.ambient * 0.45;
-      } else {
-        sun.position.copy(normal.sunPosition);
-        sun.intensity = normal.sun;
-        if (ambient) ambient.intensity = normal.ambient;
+        sun.shadow.radius = 3; // softer edges
       }
     }
-    if (on) {
+    if (ambient) ambient.intensity = normal.ambient * (withShadows ? 0.75 : 0.45);
+    if (withShadows) {
       if (!ground && box) {
         // Catches the model's shadow, so the building sits on something.
-        ground = new THREE.Mesh(
-          new THREE.PlaneGeometry(radius * 8, radius * 8),
-          new THREE.ShadowMaterial({ opacity: 0.35 })
-        );
+        ground = new THREE.Mesh(new THREE.PlaneGeometry(radius * 8, radius * 8), new THREE.ShadowMaterial({ opacity: 0.18 }));
         ground.rotation.x = -Math.PI / 2;
         ground.position.set(center.x, box.min.y - 0.01, center.z);
         ground.receiveShadow = true;
@@ -204,7 +199,7 @@ async function setupShading(model, world) {
       }
       markMeshes();
     }
-    if (ground) ground.visible = on;
+    if (ground) ground.visible = withShadows;
     model.object?.traverse((child) => {
       if (child.isMesh) for (const material of [].concat(child.material ?? [])) material.needsUpdate = true;
     });
@@ -215,9 +210,8 @@ async function setupShading(model, world) {
     clayModel = next === "clay" ? model : null;
     await model.resetOpacity(undefined);
     await model.resetColor(undefined);
-    setShadows(next === "shadows");
-    if (next === "xray") await model.setOpacity(undefined, 0.25);
-    else if (next === "clay") await model.setColor(undefined, CLAY_COLOR);
+    setLighting(next === "shadows");
+    if (next === "clay") await model.setColor(undefined, CLAY_COLOR);
     await fragments.core.update(true);
     if (mode === "shadows") markMeshes(); // meshes created by the update above
     if (selected) {
@@ -236,10 +230,8 @@ async function setupShading(model, world) {
     saved = localStorage.getItem("viewer-shading") || "shadows";
   } catch {}
   if (![...shadingSelect.options].some((o) => o.value === saved)) saved = "shadows";
-  if (saved !== "shaded") {
-    shadingSelect.value = saved;
-    apply(saved);
-  }
+  shadingSelect.value = saved;
+  apply(saved); // every style uses the contrast lighting, so this always runs
 }
 
 function setupDownload(info) {
