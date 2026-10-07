@@ -131,7 +131,7 @@ async function init() {
 }
 
 // ---------- shading styles ----------
-// Shaded = as modelled. Shadows = a sun-like light casting real shadows, for depth. X-ray = see-through.
+// Shadows (default) = a sun-like light casting real shadows, for depth. Shaded = flat, as modelled. X-ray = see-through.
 // Clay = one neutral colour (shape without distraction).
 async function setupShading(model, world) {
   if (!model) return;
@@ -231,11 +231,12 @@ async function setupShading(model, world) {
 
   shadingSelect.classList.remove("hidden");
   shadingSelect.addEventListener("change", () => apply(shadingSelect.value));
-  let saved = "shaded";
+  let saved = "shadows"; // default style; a choice made earlier on this device wins
   try {
-    saved = localStorage.getItem("viewer-shading") || "shaded";
+    saved = localStorage.getItem("viewer-shading") || "shadows";
   } catch {}
-  if (saved !== "shaded" && [...shadingSelect.options].some((o) => o.value === saved)) {
+  if (![...shadingSelect.options].some((o) => o.value === saved)) saved = "shadows";
+  if (saved !== "shaded") {
     shadingSelect.value = saved;
     apply(saved);
   }
