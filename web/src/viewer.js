@@ -277,8 +277,8 @@ function setupDownload(info) {
 
 // ---------- selecting an element: press and hold ----------
 // A plain click or drag never selects, so orbiting the model can't select things by accident. Holding still on an
-// element for HOLD_MS (one second) selects it, on a mouse and on a touch screen alike.
-const HOLD_MS = 1000;
+// element for HOLD_MS (a third of a second) selects it, on a mouse and on a touch screen alike.
+const HOLD_MS = 300;
 const HOLD_MOVE_TOLERANCE = 8; // px the pointer may drift before it counts as a drag
 
 async function clearSelection() {
