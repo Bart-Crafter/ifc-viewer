@@ -127,49 +127,99 @@ async function init() {
   const raycaster = raycasters.get(world);
   setupPicking(world, raycaster);
   setupRuler(world, raycaster);
-  setupShading(model);
+  setupShading(model, world);
 }
 
 // ---------- shading styles ----------
-// Shaded = as modelled. X-ray = see-through. Clay = one neutral colour (shape without distraction). Wireframe = edges only.
-function setupShading(model) {
+// Shaded = as modelled. Shadows = a sun-like light casting real shadows, for depth. X-ray = see-through.
+// Clay = one neutral colour (shape without distraction).
+async function setupShading(model, world) {
   if (!model) return;
   let mode = "shaded";
+  const renderer = world.renderer.three;
+  const scene = world.scene.three;
 
-  // Tiles stream in as the camera moves, so wireframe is applied to meshes as they appear. Materials already
-  // switched are remembered, so nothing is recompiled twice (recompiling every frame would freeze the page).
-  const wired = new Set();
-  const setWireframe = (on) => {
+  // ----- shadows -----
+  const sun = [...world.scene.directionalLights.values()][0];
+  const ambient = [...world.scene.ambientLights.values()][0];
+  const normal = { sun: sun?.intensity ?? 1, ambient: ambient?.intensity ?? 1, sunPosition: sun?.position.clone() };
+  const box = await model.box;
+  const center = box ? box.getCenter(new THREE.Vector3()) : new THREE.Vector3();
+  const radius = box ? Math.max(box.getSize(new THREE.Vector3()).length() / 2, 1) : 50;
+  const shadowed = new WeakSet(); // meshes already set to cast/receive shadows
+  let ground = null;
+
+  const markMeshes = () => {
     model.object?.traverse((child) => {
-      for (const material of [].concat(child.material ?? [])) {
-        if (!("wireframe" in material)) continue;
-        if (on && !wired.has(material)) {
-          material.wireframe = true;
-          material.needsUpdate = true;
-          wired.add(material);
-        } else if (!on && wired.has(material)) {
-          material.wireframe = false;
-          material.needsUpdate = true;
-          wired.delete(material);
-        }
-      }
+      if (!child.isMesh || shadowed.has(child)) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+      shadowed.add(child);
+      for (const material of [].concat(child.material ?? [])) material.needsUpdate = true;
     });
   };
   model.onViewUpdated.add(() => {
-    if (mode === "wireframe") setWireframe(true);
+    if (mode === "shadows") markMeshes();
   });
+
+  function setShadows(on) {
+    renderer.shadowMap.enabled = on;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    if (sun) {
+      sun.castShadow = on;
+      if (on) {
+        // Aim the sun from the upper side so walls and floors read clearly; fit its shadow box to the model.
+        sun.position.copy(center).add(new THREE.Vector3(0.6, 1, 0.45).normalize().multiplyScalar(radius * 2));
+        sun.target.position.copy(center);
+        sun.target.updateMatrixWorld();
+        const cam = sun.shadow.camera;
+        cam.left = cam.bottom = -radius * 1.1;
+        cam.right = cam.top = radius * 1.1;
+        cam.near = radius * 0.1;
+        cam.far = radius * 4.5;
+        cam.updateProjectionMatrix();
+        const size = matchMedia("(pointer: coarse)").matches ? 2048 : 4096; // lighter on phones and tablets
+        sun.shadow.mapSize.set(size, size);
+        sun.shadow.bias = -0.0004;
+        sun.shadow.normalBias = radius * 0.0004;
+        sun.intensity = normal.sun * 1.9; // stronger sun, dimmer fill: shadows and faces separate clearly
+        if (ambient) ambient.intensity = normal.ambient * 0.45;
+      } else {
+        sun.position.copy(normal.sunPosition);
+        sun.intensity = normal.sun;
+        if (ambient) ambient.intensity = normal.ambient;
+      }
+    }
+    if (on) {
+      if (!ground && box) {
+        // Catches the model's shadow, so the building sits on something.
+        ground = new THREE.Mesh(
+          new THREE.PlaneGeometry(radius * 8, radius * 8),
+          new THREE.ShadowMaterial({ opacity: 0.35 })
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.set(center.x, box.min.y - 0.01, center.z);
+        ground.receiveShadow = true;
+        scene.add(ground);
+      }
+      markMeshes();
+    }
+    if (ground) ground.visible = on;
+    model.object?.traverse((child) => {
+      if (child.isMesh) for (const material of [].concat(child.material ?? [])) material.needsUpdate = true;
+    });
+  }
 
   async function apply(next) {
     mode = next;
     clayModel = next === "clay" ? model : null;
     await model.resetOpacity(undefined);
     await model.resetColor(undefined);
-    setWireframe(false);
+    setShadows(next === "shadows");
     if (next === "xray") await model.setOpacity(undefined, 0.25);
     else if (next === "clay") await model.setColor(undefined, CLAY_COLOR);
-    else if (next === "wireframe") setWireframe(true);
     await fragments.core.update(true);
-    if (mode === "wireframe") setWireframe(true); // meshes created by the update above
+    if (mode === "shadows") markMeshes(); // meshes created by the update above
     if (selected) {
       await fragments.highlight(HIGHLIGHT_STYLE, { [selected.modelId]: [selected.localId] });
       await syncClaySelection(null, selected);
