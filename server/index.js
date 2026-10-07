@@ -8,7 +8,6 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { nanoid } from "nanoid";
 import QRCode from "qrcode";
-import { convertIfc } from "./convert.js";
 import { openDb } from "./db.js";
 import { createBackend } from "./storage-backends/index.js";
 import { StorageError } from "./storage-backends/errors.js";
@@ -755,6 +754,8 @@ async function readAll(stream) {
 async function convertJob({ project, entry }) {
   try {
     const { stream } = await storage.read(project, entry.id);
+    // Loaded on first use: the IFC libraries are large, and most of the time the server never needs them.
+    const { convertIfc } = await import("./convert.js");
     const { fragmentBytes, properties } = await convertIfc(await readAll(stream));
     const current = await storage.get(project, entry.id);
     if (!current || versionTag(current) !== versionTag(entry)) return; // replaced or removed meanwhile; a newer job follows

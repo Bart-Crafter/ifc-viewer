@@ -103,6 +103,12 @@ export async function openDb({ dataDir, url }) {
       }
     });
   } else {
+    if (process.env.NODE_ENV === "production" && !process.env.ALLOW_EMBEDDED_DB) {
+      throw new Error(
+        "DATABASE_URL is not set. In production the site needs a hosted Postgres database (see RENDER-DEPLOY.md). " +
+          "The embedded test database is for local development only and uses too much memory for a free host."
+      );
+    }
     const { PGlite } = await import("@electric-sql/pglite");
     const lite = new PGlite(path.join(dataDir, "pgdata"), { parsers: { 20: Number } });
     await lite.waitReady;

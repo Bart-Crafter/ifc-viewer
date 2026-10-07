@@ -16,6 +16,8 @@ services:
     envVars:
       - key: NODE_VERSION # needs 22.13 or newer
         value: "22"
+      - key: NODE_OPTIONS # keep Node's heap under the free plan's 512 MB so it collects garbage instead of being killed
+        value: "--max-old-space-size=384"
       - key: DATABASE_URL # Postgres connection string (Neon: copy it from the project dashboard)
         sync: false
       - key: ADMIN_EMAIL # the first site administrator, created when the database is empty
