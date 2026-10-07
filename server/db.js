@@ -73,12 +73,28 @@ function wrap(query, tx) {
   };
 }
 
+// Hosted providers (Neon) hand out strings like "...?sslmode=require&channel_binding=require". Keep TLS verification on, state it
+// explicitly (silences pg's warning), and drop channel_binding, which some connection paths stall on.
+function cleanConnectionString(url) {
+  const u = new URL(url);
+  if (["require", "prefer", "verify-ca"].includes(u.searchParams.get("sslmode"))) u.searchParams.set("sslmode", "verify-full");
+  u.searchParams.delete("channel_binding");
+  return u.toString();
+}
+
 export async function openDb({ dataDir, url }) {
   let db;
   if (url) {
     // Return int8 (COUNT etc.) as numbers; our values are small.
     pg.types.setTypeParser(20, Number);
-    const pool = new pg.Pool({ connectionString: url, max: Number(process.env.DATABASE_POOL_MAX) || 5, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 15_000 });
+    const pool = new pg.Pool({
+      connectionString: cleanConnectionString(url),
+      max: Number(process.env.DATABASE_POOL_MAX) || 5,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 20_000,
+      query_timeout: 30_000, // never hang forever: a stuck query becomes an error in the log
+    });
+    console.log(`Connecting to database ${new URL(url).host} ...`);
     pool.on("error", (err) => console.error("Database connection error:", err.message));
     const query = async (sql, params) => {
       const r = await pool.query(sql, params);
@@ -120,6 +136,8 @@ export async function openDb({ dataDir, url }) {
     console.log("No DATABASE_URL set: using a local embedded database (development only).");
   }
   await db.run("SELECT 1");
+  console.log("Database connected.");
   for (const statement of SCHEMA.split(";").map((s) => s.trim()).filter(Boolean)) await db.run(statement);
+  console.log("Database ready.");
   return db;
 }

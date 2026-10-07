@@ -37,6 +37,8 @@ fs.mkdirSync(dataDir, { recursive: true });
 fs.rmSync(tmpDir, { recursive: true, force: true });
 fs.mkdirSync(tmpDir, { recursive: true });
 
+process.on("unhandledRejection", (err) => console.error("Unhandled error:", err));
+console.log("Starting...");
 const db = await openDb({ dataDir, url: process.env.DATABASE_URL });
 const sessions = createSessions(db);
 const storage = createBackend({ dataDir, env: process.env });
