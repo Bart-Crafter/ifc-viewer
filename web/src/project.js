@@ -39,22 +39,6 @@ let via = null;
 let folders = [];
 let files = [];
 const selected = new Set(); // file ids picked for a quick-send link
-// QR codes added to PDFs as they are uploaded (settings remembered on this device).
-const STAMP_DEFAULTS = { on: true, pos: "br", mm: 22, margin: 8, pages: "first", caption: true };
-let stamp = (() => {
-  try {
-    return { ...STAMP_DEFAULTS, ...JSON.parse(localStorage.getItem("qr-stamp") || "{}") };
-  } catch {
-    return { ...STAMP_DEFAULTS };
-  }
-})();
-const saveStamp = () => {
-  try {
-    localStorage.setItem("qr-stamp", JSON.stringify(stamp));
-  } catch {}
-};
-const stampQuery = () => `&qrpos=${stamp.pos}&qrmm=${stamp.mm}&qrmargin=${stamp.margin}&qrpages=${stamp.pages}&qrcaption=${stamp.caption ? 1 : 0}`;
-const CORNER_NAMES = { tl: "top left", tr: "top right", bl: "bottom left", br: "bottom right" };
 let hideOld = null; // hide superseded revisions (default: on for people who only view)
 let pollTimer = null;
 
@@ -242,9 +226,10 @@ function fileRow(f) {
       ? `<span class="badge rev" title="Revision ${esc(r.rev)}">${esc(r.rev)}</span> <span class="badge bad" title="The latest revision is ${esc(r.latestRev)}">Superseded by ${esc(r.latestRev)}</span>`
       : `<span class="badge rev" title="Revision ${esc(r.rev)}">${esc(r.rev)}</span> <span class="badge ok">Latest</span>`
     : "");
-  if (can(role, "designer") && (f.type === "pdf" || f.type === "ifc")) actions.push(`<button type="button" class="secondary small" data-action="qr" data-id="${f.id}">QR</button>`);
-  if (can(role, "designer") && f.folder === "pdf" && f.type === "pdf" && f.revision && !f.qr) {
-    actions.push(`<button type="button" class="secondary small" data-action="stampqr" data-id="${f.id}" title="Put the QR code on this PDF">Add QR to PDF</button>`);
+  // A drawing's link works for anyone who may see it; designers can also put its QR code onto the PDF.
+  if (can(role, "designer") && (f.type === "pdf" || f.type === "ifc")) {
+    if (f.type === "pdf" && f.revision && !f.qr) actions.push(`<button type="button" class="secondary small" data-action="addqr" data-id="${f.id}" title="Open the drawing and place its QR code">Add QR</button>`);
+    actions.push(`<button type="button" class="secondary small" data-action="copylink" data-id="${f.id}" title="Copy the link that always opens the newest revision">Copy link</button>`);
   }
   return `
     <div class="file-row ${r?.superseded ? "superseded" : ""}">
@@ -287,19 +272,12 @@ function renderFolders() {
           <div><h2>${esc(folder.label)} <span class="count">${list.length}</span></h2><p class="muted small">${esc(FOLDER_HINTS[folder.key] || "")}</p></div>
           ${folder.canUpload ? `<label class="button small">Upload<input type="file" ${FOLDER_ACCEPT[folder.key] ? `accept="${FOLDER_ACCEPT[folder.key]}"` : ""} multiple hidden data-upload="${folder.key}" /></label>` : ""}
         </div>
-        ${folder.key === "pdf" && folder.canUpload ? stampBar(list) : ""}
         <div class="upload-status" data-status="${folder.key}"></div>
         ${list.length ? list.map(fileRow).join("") : '<p class="muted empty-row">No files yet.</p>'}
       </section>`;
     })
     .join("");
 
-  host.querySelector("#stamp-on")?.addEventListener("change", (e) => {
-    stamp.on = e.target.checked;
-    saveStamp();
-  });
-  host.querySelector("#stamp-settings")?.addEventListener("click", showStampSettings);
-  host.querySelector("#stamp-all")?.addEventListener("click", stampAll);
   host.querySelector("#hide-old")?.addEventListener("change", (e) => {
     hideOld = e.target.checked;
     renderFolders();
@@ -344,8 +322,7 @@ async function uploadMany(folder, picked) {
   for (const file of picked) {
     status.textContent = `Uploading ${file.name}…`;
     try {
-      const wantsQr = folder === "pdf" && stamp.on && /\.pdf$/i.test(file.name) && revisionParts(file.name);
-      const result = await uploadFile(`${P}/folders/${folder}/files?rights=1${wantsQr ? `&qr=1${stampQuery()}` : ""}`, "POST", file, (p) => {
+      const result = await uploadFile(`${P}/folders/${folder}/files?rights=1`, "POST", file, (p) => {
         status.textContent = `Uploading ${file.name}… ${Math.round(p * 100)}%`;
       });
       if (result?.note) toast(result.note);
@@ -356,108 +333,6 @@ async function uploadMany(folder, picked) {
   status.textContent = "";
   await loadFiles();
   renderFolders();
-}
-
-function stampBar(list) {
-  const missing = list.filter((f) => f.type === "pdf" && f.revision && !f.qr).length;
-  return `<div class="stamp-bar">
-      <label class="check-line"><input type="checkbox" id="stamp-on" ${stamp.on ? "checked" : ""} /> <span>Add a QR code to PDFs I upload <span class="muted">(${CORNER_NAMES[stamp.pos]}, ${stamp.mm} mm)</span></span></label>
-      <div class="stamp-actions">
-        <button type="button" class="secondary small" id="stamp-settings">Position &amp; size…</button>
-        ${missing ? `<button type="button" class="secondary small" id="stamp-all">Add QR to the ${missing} PDF${missing === 1 ? "" : "s"} without one</button>` : ""}
-      </div>
-    </div>`;
-}
-
-function showStampSettings() {
-  const wrap = document.createElement("div");
-  wrap.innerHTML = `
-    <h3>QR code on PDFs</h3>
-    <p class="muted">The site adds the drawing's QR code to the PDF itself, so there is no need to generate it, edit the drawing and print again. The PDF needs a revision code in its name (like <em>C02</em>). Only the PDF in SharePoint is changed, never your DWG.</p>
-    <div class="corner-pick" role="radiogroup" aria-label="Corner of the sheet">
-      ${["tl", "tr", "bl", "br"].map((c) => `<button type="button" class="corner ${stamp.pos === c ? "active" : ""}" data-corner="${c}" role="radio" aria-checked="${stamp.pos === c}">${CORNER_NAMES[c]}</button>`).join("")}
-    </div>
-    <div class="cad-row">
-      <label>Size on the sheet (mm)<input type="number" name="mm" min="12" max="80" value="${stamp.mm}" /></label>
-      <label>Distance from the edge (mm)<input type="number" name="margin" min="0" max="60" value="${stamp.margin}" /></label>
-    </div>
-    <label>Pages<select name="pages"><option value="first" ${stamp.pages === "first" ? "selected" : ""}>First page only</option><option value="all" ${stamp.pages === "all" ? "selected" : ""}>Every page</option></select></label>
-    <label class="check-line"><input type="checkbox" name="caption" ${stamp.caption ? "checked" : ""} /> <span>Print "Scan: latest revision" under the code</span></label>
-    <div class="modal-actions"><button type="button" class="secondary" data-cancel>Cancel</button><button type="button" data-save>Save</button></div>`;
-  const { close } = openModal(wrap);
-  let pos = stamp.pos;
-  wrap.querySelectorAll("[data-corner]").forEach((b) =>
-    b.addEventListener("click", () => {
-      pos = b.dataset.corner;
-      wrap.querySelectorAll("[data-corner]").forEach((x) => {
-        x.classList.toggle("active", x === b);
-        x.setAttribute("aria-checked", String(x === b));
-      });
-    })
-  );
-  wrap.querySelector("[data-cancel]").addEventListener("click", close);
-  wrap.querySelector("[data-save]").addEventListener("click", () => {
-    stamp = {
-      ...stamp,
-      pos,
-      mm: Math.min(80, Math.max(12, Number(wrap.querySelector('[name="mm"]').value) || 22)),
-      margin: Math.min(60, Math.max(0, Number(wrap.querySelector('[name="margin"]').value) || 0)),
-      pages: wrap.querySelector('[name="pages"]').value,
-      caption: wrap.querySelector('[name="caption"]').checked,
-    };
-    saveStamp();
-    close();
-    renderFolders();
-  });
-}
-
-// Put the QR code on every drawing PDF that doesn't have one (e.g. files staff dropped straight into OneDrive).
-async function stampAll() {
-  const todo = files.filter((f) => f.folder === "pdf" && f.type === "pdf" && f.revision && !f.qr);
-  if (!todo.length) return;
-  if (!confirm(`Add the QR code to ${todo.length} PDF${todo.length === 1 ? "" : "s"}? Each one is updated in SharePoint (previous versions are kept in its history).`)) return;
-  const status = document.querySelector('[data-status="pdf"]');
-  let ok = 0;
-  const problems = [];
-  for (const f of todo) {
-    status.textContent = `Adding QR codes… ${ok + problems.length + 1} of ${todo.length} (${f.name})`;
-    try {
-      await api(`/api/files/${f.id}/stamp-qr?${stampQuery().slice(1)}`, { method: "POST" });
-      ok++;
-    } catch (err) {
-      problems.push(`${f.name}: ${err.message}`);
-    }
-  }
-  status.textContent = "";
-  toast(`QR code added to ${ok} PDF${ok === 1 ? "" : "s"}.${problems.length ? ` ${problems.length} could not be done: ${problems.slice(0, 2).join("; ")}` : ""}`, problems.length ? "error" : "info");
-  await loadFiles();
-  renderFolders();
-}
-
-// QR code to print on a drawing: scanning it always opens the newest revision and warns if the printed one is out of date.
-async function showDocumentQr(file) {
-  let link;
-  try {
-    link = await api(`/api/files/${file.id}/link`);
-  } catch (err) {
-    return toast(err.message, "error");
-  }
-  const wrap = document.createElement("div");
-  wrap.innerHTML = `
-    <h3>QR code for ${esc(file.name)}</h3>
-    <p class="muted">Print this on the drawing${link.rev ? ` (it is for revision <strong>${esc(link.rev)}</strong>)` : ""}. Anyone who scans it is taken to the <strong>newest</strong> revision of this drawing, and is told if the one they scanned has been replaced. No sign-in is needed if the folder is public; otherwise they are asked to sign in.</p>
-    <img class="qr" src="/api/files/${encodeURIComponent(file.id)}/qr.png" alt="QR code for ${esc(file.name)}" />
-    <div class="secret"><code>${esc(link.url)}</code><button type="button" class="secondary small" data-copy>Copy</button></div>
-    <div class="modal-actions"><a class="button secondary" href="/api/files/${encodeURIComponent(file.id)}/qr.png" download="drawing-qr.png">Download QR image</a><button type="button" data-close>Close</button></div>`;
-  const { close } = openModal(wrap);
-  wrap.querySelector("[data-close]").addEventListener("click", close);
-  wrap.querySelector("[data-copy]").addEventListener("click", async (e) => {
-    await navigator.clipboard.writeText(link.url).catch(() => {});
-    e.target.textContent = "Copied";
-  });
-  wrap.querySelector(".secret").after(
-    cadTools({ pngUrl: `/api/files/${encodeURIComponent(file.id)}/qr.png`, dxfUrl: `/api/files/${encodeURIComponent(file.id)}/qr.dxf` })
-  );
 }
 
 // Same reading of "name + space + revision code" as the server (the server is what actually enforces it).
@@ -491,17 +366,18 @@ function askRevisionMismatch({ existing, incoming, canForce, message }) {
 async function fileAction(action, id) {
   const file = files.find((f) => f.id === id);
   if (!file) return;
-  if (action === "qr") return showDocumentQr(file);
-  if (action === "stampqr") {
-    if (!confirm(`Put the QR code on ${file.name}? The PDF in SharePoint is updated (SharePoint keeps the previous version in its history).`)) return;
+  if (action === "addqr") {
+    location.href = `/view/pdf/${encodeURIComponent(id)}?qr=1`; // placed on the drawing itself, in the viewer
+    return;
+  }
+  if (action === "copylink") {
     try {
-      const done = await api(`/api/files/${id}/stamp-qr?${stampQuery().slice(1)}`, { method: "POST" });
-      toast(done.note);
+      const link = await api(`/api/files/${encodeURIComponent(id)}/link`);
+      await navigator.clipboard.writeText(link.url);
+      toast("Link copied. It always opens the newest revision of this drawing.");
     } catch (err) {
-      toast(err.message, "error");
+      toast(err.name === "NotAllowedError" ? "Couldn't copy automatically." : err.message, "error");
     }
-    await loadFiles();
-    renderFolders();
     return;
   }
   try {
@@ -549,16 +425,14 @@ Rename anyway?`)) return;
             });
             if (!choice) return;
             if (choice === "new") {
-              const newQr = file.folder === "pdf" && stamp.on && revisionParts(chosen.name);
-              const result = await uploadFile(`${P}/folders/${file.folder}/files?rights=1${newQr ? `&qr=1${stampQuery()}` : ""}`, "POST", chosen, progress("Uploading"));
+              const result = await uploadFile(`${P}/folders/${file.folder}/files?rights=1`, "POST", chosen, progress("Uploading"));
               toast(result?.note || `"${chosen.name}" uploaded as a new file.`);
               return;
             }
             force = true;
           }
-          const replQr = file.folder === "pdf" && file.type === "pdf" && stamp.on && revisionParts(file.name);
-          const done = await uploadFile(`/api/files/${id}?rights=1${force ? "&force=1" : ""}${replQr ? `&qr=1${stampQuery()}` : ""}`, "PUT", chosen, progress("Replacing"));
-          toast(`"${file.name}" replaced with the new version.${done?.note ? ` ${done.note}` : ""}`);
+          await uploadFile(`/api/files/${id}?rights=1${force ? "&force=1" : ""}`, "PUT", chosen, progress("Replacing"));
+          toast(`"${file.name}" replaced with the new version.`);
         } catch (err) {
           toast(err.message, "error");
         } finally {
@@ -576,54 +450,6 @@ Rename anyway?`)) return;
   } catch (err) {
     toast(err.message, "error");
   }
-}
-
-// "Put it on a drawing": copy the QR as a picture to paste into a DWG, or download it as a DXF (sharp vector
-// geometry at an exact size and drawing scale) to INSERT into AutoCAD/BricsCAD.
-function cadTools({ pngUrl, dxfUrl }) {
-  const saved = (() => {
-    try {
-      return JSON.parse(localStorage.getItem("qr-cad") || "{}");
-    } catch {
-      return {};
-    }
-  })();
-  const box = document.createElement("div");
-  box.className = "cad-tools";
-  box.innerHTML = `
-    <h4>Put it on a drawing</h4>
-    <div class="cad-row">
-      <button type="button" data-copy-image>Copy image</button>
-      <span class="muted small">then paste (Ctrl+V) into the drawing</span>
-    </div>
-    <div class="cad-row">
-      <label>Size on the sheet (mm)<input type="number" name="mm" min="8" max="200" step="1" value="${saved.mm || 25}" /></label>
-      <label>Drawing scale 1:<input type="number" name="scale" min="1" max="5000" step="1" value="${saved.scale || 1}" /></label>
-      <a class="button" data-dxf download>Download .dxf</a>
-    </div>
-    <p class="muted small">In AutoCAD or BricsCAD: <strong>INSERT</strong> → Browse → pick the .dxf → click to place it. It arrives as one sharp block (not a picture) at exactly that size. Use scale 1 for a layout/paper space; in model space at 1:50 enter 50.</p>`;
-  const mm = box.querySelector('[name="mm"]');
-  const scale = box.querySelector('[name="scale"]');
-  const link = box.querySelector("[data-dxf]");
-  const update = () => {
-    link.href = `${dxfUrl}?mm=${encodeURIComponent(mm.value || 25)}&scale=${encodeURIComponent(scale.value || 1)}`;
-    try {
-      localStorage.setItem("qr-cad", JSON.stringify({ mm: mm.value, scale: scale.value }));
-    } catch {}
-  };
-  mm.addEventListener("input", update);
-  scale.addEventListener("input", update);
-  update();
-  box.querySelector("[data-copy-image]").addEventListener("click", async (event) => {
-    try {
-      const blob = await (await fetch(pngUrl, { credentials: "same-origin" })).blob();
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-      event.target.textContent = "Copied";
-    } catch {
-      toast("Couldn't copy automatically. Right-click the QR code and choose Copy image.", "error");
-    }
-  });
-  return box;
 }
 
 // ---------- link / QR ----------
@@ -652,7 +478,6 @@ async function showShare() {
       await navigator.clipboard.writeText(url).catch(() => {});
       e.target.textContent = "Copied";
     });
-    wrap.querySelector(".secret").after(cadTools({ pngUrl: `${P}/qr.png`, dxfUrl: `${P}/qr.dxf` }));
     wrap.querySelector("[data-reset]")?.addEventListener("click", async () => {
       if (!confirm("Reset the project link? Existing QR codes and links stop working immediately.")) return;
       try {

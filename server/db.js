@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS qr_stamps (
   stamped_at TEXT NOT NULL,
   PRIMARY KEY (project_id, item_id)
 );
+ALTER TABLE qr_stamps ADD COLUMN IF NOT EXISTS series TEXT;
+ALTER TABLE qr_stamps ADD COLUMN IF NOT EXISTS placement TEXT;
 CREATE TABLE IF NOT EXISTS shares (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

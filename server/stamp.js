@@ -1,21 +1,24 @@
-import { PDFDocument, StandardFonts, rgb, pushGraphicsState, popGraphicsState, concatTransformationMatrix } from "pdf-lib";
+import { PDFDocument, pushGraphicsState, popGraphicsState, concatTransformationMatrix, rgb } from "pdf-lib";
 import QRCode from "qrcode";
 
-// Puts a QR code onto a PDF drawing as vector shapes (sharp at any print size, no picture). The code is placed in a
-// corner of the visible sheet, whatever way the page is rotated, on a white box so it scans over linework.
-const MM = 72 / 25.4; // PDF points per millimetre
+// Puts a QR code onto a PDF drawing as vector shapes (sharp at any print size, no picture), exactly where the
+// designer placed it in the viewer. The position is given as fractions of the page as it looks on screen, so it is
+// right whichever way the page is rotated. The code sits on a white box so it scans over linework.
 
-export const STAMP_DEFAULTS = { pos: "br", mm: 22, margin: 8, pages: "first", caption: true };
+export const MIN_WIDTH = 0.02; // of the page width
+export const MAX_WIDTH = 0.6;
 
-export function cleanStampOptions(input = {}) {
-  const num = (v, fallback, min, max) => Math.min(max, Math.max(min, Number(v) || fallback));
-  return {
-    pos: ["br", "bl", "tr", "tl"].includes(input.pos) ? input.pos : STAMP_DEFAULTS.pos,
-    mm: num(input.mm, STAMP_DEFAULTS.mm, 12, 80),
-    margin: num(input.margin, STAMP_DEFAULTS.margin, 0, 60),
-    pages: input.pages === "all" ? "all" : "first",
-    caption: input.caption === undefined ? STAMP_DEFAULTS.caption : input.caption === true || input.caption === "1" || input.caption === 1,
-  };
+// x, y: top-left corner of the box as a fraction of the visible page (0..1, y measured down from the top).
+// w: box width as a fraction of the visible page width (the box is square, quiet zone included).
+export function cleanPlacement(input = {}) {
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : NaN);
+  const page = Math.round(num(input.page ?? 1));
+  const x = num(input.x);
+  const y = num(input.y);
+  const w = num(input.w);
+  if (![page, x, y, w].every(Number.isFinite) || page < 1) throw new Error("The QR position isn't valid.");
+  if (w < MIN_WIDTH || w > MAX_WIDTH) throw new Error("The QR code size isn't valid.");
+  return { page, x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)), w, allPages: input.allPages === true };
 }
 
 // Map "visual" coordinates (as the page looks on screen, origin bottom-left) onto the page's own coordinate system.
@@ -32,24 +35,16 @@ function pageMatrix(rotation, w, h, x0, y0) {
   }
 }
 
-export async function stampQr(bytes, url, options = {}) {
-  const o = cleanStampOptions(options);
+export async function stampQr(bytes, url, placement) {
+  const p = cleanPlacement(placement);
   const pdf = await PDFDocument.load(bytes, { updateMetadata: false });
   const pages = pdf.getPages();
   if (!pages.length) throw new Error("The PDF has no pages.");
-  const font = o.caption ? await pdf.embedFont(StandardFonts.Helvetica) : null;
+  if (p.page > pages.length) throw new Error("That page doesn't exist in the PDF.");
 
   const qr = QRCode.create(url, { errorCorrectionLevel: "L" });
   const n = qr.modules.size;
-  const symbol = o.mm * MM;
-  const module = symbol / n;
-  const quiet = module * 2;
-  const captionSize = Math.max(3.5, module * 5);
-  const captionText = "Scan: latest revision";
-  const captionHeight = font ? captionSize + 3 : 0;
-  const boxW = symbol + quiet * 2;
-  const boxH = boxW + captionHeight;
-  const margin = o.margin * MM;
+  const total = n + 4; // two modules of white margin each side
   const black = rgb(0, 0, 0);
 
   // dark squares as horizontal runs, to keep the drawing instructions few
@@ -68,25 +63,23 @@ export async function stampQr(bytes, url, options = {}) {
     }
   }
 
-  const targets = o.pages === "all" ? pages.slice(0, 300) : [pages[0]];
+  const targets = p.allPages ? pages.slice(0, 300) : [pages[p.page - 1]];
   for (const page of targets) {
     const crop = page.getCropBox();
     const rotation = page.getRotation().angle;
     const visualW = rotation % 180 === 0 ? crop.width : crop.height;
     const visualH = rotation % 180 === 0 ? crop.height : crop.width;
-    if (boxW + margin > visualW || boxH + margin > visualH) throw new Error("The QR code is too big for this page size. Choose a smaller size.");
-    const x = o.pos.endsWith("l") ? margin : visualW - margin - boxW;
-    const y = o.pos.startsWith("b") ? margin : visualH - margin - boxH;
+    const box = p.w * visualW; // square
+    // keep the whole box on the sheet
+    const left = Math.min(Math.max(0, p.x * visualW), Math.max(0, visualW - box));
+    const bottom = Math.min(Math.max(0, visualH - p.y * visualH - box), Math.max(0, visualH - box));
+    const module = box / total;
 
     page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...pageMatrix(rotation, crop.width, crop.height, crop.x, crop.y)));
-    page.drawRectangle({ x, y, width: boxW, height: boxH, color: rgb(1, 1, 1) });
-    const top = y + boxH - quiet; // top of the symbol, below the white margin
+    page.drawRectangle({ x: left, y: bottom, width: box, height: box, color: rgb(1, 1, 1) });
+    const top = bottom + box - module * 2; // top of the symbol, below the white margin
     for (const [col, row, length] of runs) {
-      page.drawRectangle({ x: x + quiet + col * module, y: top - (row + 1) * module, width: length * module, height: module, color: black });
-    }
-    if (font) {
-      const textWidth = font.widthOfTextAtSize(captionText, captionSize);
-      page.drawText(captionText, { x: x + (boxW - textWidth) / 2, y: y + 2, size: captionSize, font, color: black });
+      page.drawRectangle({ x: left + module * 2 + col * module, y: top - (row + 1) * module, width: length * module, height: module, color: black });
     }
     page.pushOperators(popGraphicsState());
   }

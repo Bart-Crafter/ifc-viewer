@@ -819,3 +819,54 @@ a.button, label.button { display: inline-flex; align-items: center; justify-cont
 .corner-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 0.4rem 0 1rem; }
 .corner-pick .corner { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); font-weight: 500; text-transform: capitalize; }
 .corner-pick .corner.active { background: var(--accent); color: #05101f; border-color: var(--accent); }
+
+/* placing the QR code in the PDF viewer */
+.pdf-page { position: relative; }
+.qr-overlay {
+  position: absolute;
+  z-index: 5;
+  box-shadow: 0 0 0 2px #ffa500, 0 4px 14px rgba(0, 0, 0, 0.4);
+  background: #fff;
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.qr-overlay svg { display: block; width: 100%; height: 100%; pointer-events: none; }
+.qr-handle {
+  position: absolute;
+  right: -10px;
+  bottom: -10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #ffa500;
+  border: 3px solid #fff;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.qr-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  width: min(94vw, 720px);
+  padding: 0.7rem 0.9rem;
+  background: rgba(20, 24, 31, 0.97);
+  border: 1px solid #ffa500;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  z-index: 30;
+}
+.qr-bar.hidden { display: none; }
+.qr-bar-help { margin: 0 0 0.6rem; font-size: 0.85rem; color: var(--text-dim); }
+.qr-bar-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 0.9rem; }
+.qr-size { display: flex; align-items: center; gap: 0.4rem; }
+.qr-size button { width: 42px; padding: 0.4rem 0; font-size: 1.1rem; }
+.qr-size span { min-width: 4.2rem; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.qr-page { display: flex; align-items: center; gap: 0.4rem; margin: 0; font-size: 0.85rem; }
+.qr-page input { width: 4rem; margin: 0; padding: 0.4rem 0.5rem; }
+.qr-all { margin: 0; }
+.qr-bar-controls #qr-cancel { margin-left: auto; }
+body.placing-qr #pdf-scroll { padding-bottom: 9rem; }
+@media (max-width: 760px) { .qr-handle { width: 32px; height: 32px; right: -14px; bottom: -14px; } .qr-bar { bottom: 0.5rem; } .qr-bar-controls #qr-cancel { margin-left: 0; } }

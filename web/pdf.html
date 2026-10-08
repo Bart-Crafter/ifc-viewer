@@ -16,6 +16,7 @@
         <span id="page-info"></span>
       </div>
       <div class="viewer-tools">
+      <button id="add-qr-button" type="button" class="hidden" title="Place this drawing's QR code on the PDF">Add QR</button>
       <button id="zoom-out" type="button" class="secondary" title="Zoom out">&minus;</button>
       <button id="zoom-in" type="button" class="secondary" title="Zoom in">+</button>
       <button id="zoom-fit" type="button" class="secondary" title="Fit to width">Fit</button>
@@ -25,6 +26,20 @@
     <div id="pdf-scroll" class="pdf-scroll">
       <div id="pdf-status" class="pdf-status">Loading…</div>
       <div id="pdf-pages"></div>
+    </div>
+    <div id="qr-bar" class="qr-bar hidden">
+      <p class="qr-bar-help">Drag the QR code to where you want it. Drag its corner, or use − / +, to resize.</p>
+      <div class="qr-bar-controls">
+        <div class="qr-size">
+          <button type="button" class="secondary" id="qr-smaller" aria-label="Smaller">&minus;</button>
+          <span id="qr-size-label">22 mm</span>
+          <button type="button" class="secondary" id="qr-bigger" aria-label="Bigger">+</button>
+        </div>
+        <label class="qr-page">Page <input type="number" id="qr-page" min="1" value="1" /></label>
+        <label class="check-line qr-all"><input type="checkbox" id="qr-all" /> <span>Every page</span></label>
+        <button type="button" class="secondary" id="qr-cancel">Cancel</button>
+        <button type="button" id="qr-apply">Add QR here</button>
+      </div>
     </div>
     <script type="module" src="/src/pdf.js"></script>
   </body>
