@@ -129,7 +129,13 @@ async function init() {
   await fragments.core.update(true);
   if (model?.box) {
     const box = await model.box;
-    if (box) world.camera.controls.fitToBox(box, true);
+    if (box) {
+      world.camera.controls.fitToBox(box, true);
+      // "Reset view" puts the camera back to this opening view of the whole model.
+      const reset = document.getElementById("reset-view-button");
+      reset.classList.remove("hidden");
+      reset.addEventListener("click", () => world.camera.controls.fitToBox(box, true));
+    }
   }
 
   statusEl.textContent = "";
@@ -219,7 +225,7 @@ async function setupShading(model, world) {
 
   async function apply(next) {
     mode = next;
-    showEdges(edgesStored(next));
+    edgePass.setEnabled(EDGES_BY_STYLE[next] ?? false);
     clayModel = next === "clay" ? model : null;
     await model.resetOpacity(undefined);
     await model.resetColor(undefined);
@@ -236,29 +242,9 @@ async function setupShading(model, world) {
     } catch {}
   }
 
-  // Outlines: on by default for Shaded and Clay, off for Realistic. The button overrides that, remembered per style on this device.
+  // Outlines come with the style: on for Shaded and Clay, off for Realistic.
   const edgePass = createEdgePass(world);
-  const edgesButton = document.getElementById("edges-button");
-  const EDGES_DEFAULT = { shadows: false, shaded: true, clay: true };
-  const edgesStored = (style) => {
-    try {
-      const v = localStorage.getItem(`viewer-edges-${style}`);
-      if (v) return v === "on";
-    } catch {}
-    return EDGES_DEFAULT[style] ?? false;
-  };
-  let edgesOn = false;
-  const showEdges = (on, { remember = false } = {}) => {
-    edgesOn = on;
-    edgePass.setEnabled(on);
-    edgesButton.classList.toggle("active", on);
-    if (!remember) return;
-    try {
-      localStorage.setItem(`viewer-edges-${mode}`, on ? "on" : "off");
-    } catch {}
-  };
-  edgesButton.classList.remove("hidden");
-  edgesButton.addEventListener("click", () => showEdges(!edgesOn, { remember: true }));
+  const EDGES_BY_STYLE = { shadows: false, shaded: true, clay: true };
 
   shadingSelect.classList.remove("hidden");
   shadingSelect.addEventListener("change", () => apply(shadingSelect.value));
