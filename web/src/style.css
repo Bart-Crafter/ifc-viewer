@@ -1,15 +1,22 @@
+/* Crafter Engineering look: deep navy, mid and bright blues, lime accent, Bahnschrift. Colours are the ones used on the
+   company website. Bahnschrift ships with Windows; other devices fall back to a similar clean sans-serif. */
 :root {
-  color-scheme: light dark;
-  --bg: #0f1216;
-  --surface: #171b21;
-  --surface-2: #1f242c;
-  --border: #2a313b;
-  --text: #e8ebef;
-  --text-dim: #9aa4b2;
-  --accent: #4f9dff;
+  color-scheme: dark;
+  --bg: #02476f;
+  --nav: #012438;
+  --surface: #012438;
+  --surface-2: #013654;
+  --border: #0e5b87;
+  --text: #ffffff;
+  --text-dim: #a8c3d4;
+  --accent: #d0f839;
+  --on-accent: #012438;
   --accent-2: #6ee7b7;
-  --danger: #ff6b6b;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --blue: #03639e;
+  --danger: #ff7d7d;
+  --viewer-bg: #01202f;
+  --font: "Bahnschrift", "Bahnschrift SemiBold", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font);
 }
 
 * {
@@ -76,7 +83,7 @@ form input[type="file"] {
 
 button {
   background: var(--accent);
-  color: #06131f;
+  color: var(--on-accent);
   border: none;
   border-radius: 8px;
   padding: 0.6rem 1.1rem;
@@ -98,7 +105,7 @@ button.secondary {
 
 button.secondary.active {
   background: var(--accent);
-  color: #06131f;
+  color: var(--on-accent);
   border-color: transparent;
 }
 
@@ -338,7 +345,7 @@ button.link {
 #viewer-container {
   flex: 1;
   position: relative;
-  background: #05070a;
+  background: var(--viewer-bg);
 }
 
 #viewer-container canvas {
@@ -350,7 +357,7 @@ button.link {
 .ruler-label {
   position: fixed;
   transform: translate(-50%, -50%);
-  background: rgba(15, 18, 22, 0.85);
+  background: rgba(1, 36, 56, 0.9);
   color: #ffa500;
   border: 1px solid #ffa500;
   border-radius: 6px;
@@ -378,7 +385,7 @@ button.link {
 
 .ruler-label.committed.holding {
   background: #ffa500;
-  color: #06131f;
+  color: var(--on-accent);
   transform: translate(-50%, -50%) scale(1.12);
 }
 
@@ -518,7 +525,7 @@ input:not([type="checkbox"]):not([type="file"]), select {
 a.button, label.button {
   display: inline-block;
   background: var(--accent);
-  color: #06131f;
+  color: var(--on-accent);
   border-radius: 8px;
   padding: 0.6rem 1.1rem;
   font-size: 0.95rem;
@@ -555,9 +562,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600;
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
 }
-.badge.role-viewer { color: #9aa4b2; }
+.badge.role-viewer { color: var(--text-dim); }
 .badge.role-client { color: #6ee7b7; border-color: #2c6b57; }
-.badge.role-designer { color: #4f9dff; border-color: #2b5b99; }
+.badge.role-designer { color: #7cc4f5; border-color: #2d7fb4; }
 .badge.role-admin { color: #ffa500; border-color: #8a5a00; }
 .badge.warn { color: #ffcf66; border-color: #7a5c14; }
 .badge.bad { color: var(--danger); border-color: #7a2f2f; }
@@ -614,9 +621,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .toast.error { border-color: var(--danger); color: var(--danger); }
 
 /* PDF viewer */
-.pdf-scroll { flex: 1; overflow: auto; background: #1b1f26; padding: 1rem 0; }
-#pdf-pages { display: flex; flex-direction: column; align-items: center; gap: 0.9rem; }
-.pdf-page { background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); max-width: none; user-select: none; -webkit-user-select: none; }
+.pdf-scroll { flex: 1; overflow: auto; background: #012a40; padding: 1rem 0; }
+#pdf-pages { display: flex; flex-direction: column; align-items: flex-start; gap: 0.9rem; width: max-content; min-width: 100%; }
+.pdf-page { background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); max-width: none; flex: none; margin-inline: auto; user-select: none; -webkit-user-select: none; }
 .pdf-status { text-align: center; color: var(--text-dim); padding: 3rem 1rem; }
 .pdf-status a { color: var(--accent); }
 @media print { body.no-print { display: none !important; } }
@@ -664,7 +671,7 @@ textarea {
   gap: 0.6rem;
   max-width: min(92vw, 640px);
   padding: 0.55rem 0.5rem 0.55rem 0.9rem;
-  background: rgba(20, 24, 31, 0.92);
+  background: rgba(1, 36, 56, 0.92);
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 0.85rem;
@@ -720,7 +727,7 @@ a.button, label.button { display: inline-flex; align-items: center; justify-cont
   max-height: 70vh;
   overflow: auto;
   padding: 0.9rem 1rem 1rem;
-  background: rgba(20, 24, 31, 0.96);
+  background: rgba(1, 36, 56, 0.96);
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
@@ -747,7 +754,7 @@ a.button, label.button { display: inline-flex; align-items: center; justify-cont
   touch-action: none;
 }
 .dual-thumb:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-.viewer-header button.secondary.active, .viewer-tools button.secondary.active { background: var(--accent); color: #05101f; border-color: var(--accent); }
+.viewer-header button.secondary.active, .viewer-tools button.secondary.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 @media (max-width: 760px) {
   .section-help { display: none; }
   .section-panel { left: 0; right: 0; bottom: 0; width: auto; max-height: 52vh; border-radius: 16px 16px 0 0; border-left: 0; border-right: 0; border-bottom: 0; padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
@@ -768,7 +775,7 @@ a.button, label.button { display: inline-flex; align-items: center; justify-cont
   border-radius: 50%;
   font-size: 1.15rem;
   font-weight: 600;
-  background: rgba(20, 24, 31, 0.92);
+  background: rgba(1, 36, 56, 0.92);
   color: var(--text);
   border: 1px solid var(--border);
   z-index: 22;
@@ -818,7 +825,7 @@ a.button, label.button { display: inline-flex; align-items: center; justify-cont
 .stamp-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .corner-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 0.4rem 0 1rem; }
 .corner-pick .corner { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); font-weight: 500; text-transform: capitalize; }
-.corner-pick .corner.active { background: var(--accent); color: #05101f; border-color: var(--accent); }
+.corner-pick .corner.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 
 /* placing the QR code in the PDF viewer */
 .pdf-page { position: relative; }
@@ -852,7 +859,7 @@ a.button, label.button { display: inline-flex; align-items: center; justify-cont
   transform: translateX(-50%);
   width: min(94vw, 720px);
   padding: 0.7rem 0.9rem;
-  background: rgba(20, 24, 31, 0.97);
+  background: rgba(1, 36, 56, 0.97);
   border: 1px solid #ffa500;
   border-radius: 14px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
@@ -899,3 +906,24 @@ body.section-open .property-panel { right: 310px; }
 }
 /* PDF viewer: middle-button pan */
 .pdf-scroll.panning, .pdf-scroll.panning * { cursor: grabbing !important; user-select: none; }
+
+/* PDF viewer: pages draw into windowed canvases; left or middle drag pans */
+.pdf-page { overflow: hidden; }
+.pdf-window { display: block; }
+.pdf-scroll { cursor: grab; }
+
+/* ---------- Crafter look: type and shape ---------- */
+button, input, select, textarea { font-family: inherit; }
+body { background: var(--bg); color: var(--text); }
+h1, h2, h3, h4 { font-weight: 700; letter-spacing: -0.015em; }
+h1 { letter-spacing: -0.02em; }
+.card { border-radius: 16px; }
+.topbar { background: var(--nav); border-bottom: 0; }
+.topbar .brand { gap: 0; }
+.topbar .brand .brand-wordmark { height: 46px; width: auto; margin: -6px 0; }
+.brand-logo { filter: none; }
+a { color: inherit; }
+.muted, .small.muted { color: var(--text-dim); }
+.viewer-header { background: var(--nav); border-bottom: 1px solid var(--border); }
+.badge.ok { color: var(--accent); border-color: #7a9a1a; }
+body.viewer-body { background: var(--viewer-bg); }

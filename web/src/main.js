@@ -17,7 +17,7 @@ const app = document.getElementById("app");
 function renderLogin() {
   app.innerHTML = `
     <div class="page narrow">
-      <img src="/crafter-engineering-logo.png" alt="Crafter Engineering" class="brand-logo" />
+      <img src="/crafter-engineering-logo-white.png" alt="Crafter Engineering" class="brand-logo" />
       <h1>Project files</h1>
       <p class="muted">Sign in to see the projects you have been given access to. If you opened a project's link or QR code, you'll find it listed here after you sign in.</p>
       <div id="login"></div>

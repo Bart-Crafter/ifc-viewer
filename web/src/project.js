@@ -82,7 +82,7 @@ function confirmRights() {
 function loginScreen(message) {
   app.innerHTML = `
     <div class="page narrow">
-      <img src="/crafter-engineering-logo.png" alt="Crafter Engineering" class="brand-logo" />
+      <img src="/crafter-engineering-logo-white.png" alt="Crafter Engineering" class="brand-logo" />
       <h1>${esc(info.name)}</h1>
       <p class="muted">${esc(message)}</p>
       <div id="login"></div>

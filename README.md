@@ -40,8 +40,11 @@ Name documents with their revision code at the end: `100478-CFT-DD-XX-DR-C-101 C
 - **Copy link** beside a PDF or IFC copies a link that always opens the newest revision of that drawing (the same link the QR code holds).
 - Files without a revision code behave as before.
 
+### Look
+The site uses the Crafter Engineering website's colours (navy `#012438`, blues `#02476f` / `#03639e`, lime `#d0f839`) and the Bahnschrift font. Bahnschrift comes with Windows; on other devices a similar sans-serif is used. Colours and the font are set in one place at the top of `web/src/style.css`.
+
 ### Viewer controls
-- **PDF:** scroll wheel zooms in and out (around the pointer), the middle mouse button drags the drawing around; the buttons in the header still work, and on a touch screen you scroll as usual.
+- **PDF:** scroll wheel zooms in and out (around the pointer), left or middle mouse drag pans the drawing; only the part of a sheet that is on screen is drawn, so large drawings stay sharp and don't blank out when zoomed or scrolled; the buttons in the header still work, and on a touch screen you scroll as usual.
 - **3D model:** left-drag orbits, wheel zooms, middle-drag pans; a ruler point is only placed by a click (never by a drag); press and hold on an element to select it. It always opens in the Shaded style. The **Section** button docks a cutting panel down the right side (a sheet at the bottom on a phone).
 
 ### Copyright and sharing rights

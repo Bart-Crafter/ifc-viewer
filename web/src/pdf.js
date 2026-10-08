@@ -15,7 +15,6 @@ let pdf = null;
 let scale = 1;
 let fitScale = 1;
 let pageBoxes = [];
-let observer = null;
 let info = null;
 let currentPage = 1;
 
@@ -71,15 +70,8 @@ async function start() {
 }
 
 function buildPages(firstViewport) {
-  observer?.disconnect();
   pagesEl.innerHTML = "";
   pageBoxes = [];
-  observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) if (entry.isIntersecting) renderPage(Number(entry.target.dataset.page));
-    },
-    { root: scroller, rootMargin: "600px 0px" }
-  );
   for (let n = 1; n <= pdf.numPages; n++) {
     const box = document.createElement("div");
     box.className = "pdf-page";
@@ -88,48 +80,121 @@ function buildPages(firstViewport) {
     box.style.height = `${firstViewport.height * scale}px`;
     pagesEl.append(box);
     pageBoxes.push(box);
-    observer.observe(box);
   }
   updatePageInfo();
+  renderVisible();
+}
+
+// ---------- drawing only what is on screen ----------
+// A big drawing at a high zoom would need a canvas of tens of millions of pixels per page, which browsers drop or
+// blank when memory is short (the drawing "disappears" as you scroll). So each page is drawn into a canvas covering
+// just the part that is visible (plus some spare around it), redrawn as you scroll or zoom, and freed when the page
+// is far away. The memory used no longer depends on the size of the sheet or the zoom.
+const MAX_WINDOW_PIXELS = 12_000_000;
+const SPARE = 0.6; // spare drawn beyond the visible area, as a fraction of the screen size, each side
+
+function dropCanvas(box) {
+  box._canvas?.remove();
+  box._canvas = null;
+  box._win = null;
+}
+
+function overlap(box) {
+  const b = box.getBoundingClientRect();
+  const s = scroller.getBoundingClientRect();
+  // visible part of the page in the page's own CSS pixels, grown by `grow` of the screen size each side
+  const grown = (grow) => {
+    const gx = s.width * grow;
+    const gy = s.height * grow;
+    const x0 = Math.max(0, s.left - gx - b.left);
+    const y0 = Math.max(0, s.top - gy - b.top);
+    const x1 = Math.min(b.width, s.right + gx - b.left);
+    const y1 = Math.min(b.height, s.bottom + gy - b.top);
+    return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
+  };
+  return { visible: grown(0), window: grown(SPARE), near: grown(1.5) };
 }
 
 async function renderPage(n) {
   const box = pageBoxes[n - 1];
-  if (!box || box.dataset.renderedScale === String(scale)) return;
-  box.dataset.renderedScale = String(scale);
-  const page = await pdf.getPage(n);
-  const viewport = page.getViewport({ scale });
-  const ratio = Math.min(window.devicePixelRatio || 1, 2);
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.floor(viewport.width * ratio);
-  canvas.height = Math.floor(viewport.height * ratio);
-  canvas.style.width = `${viewport.width}px`;
-  canvas.style.height = `${viewport.height}px`;
-  box.style.width = `${viewport.width}px`;
-  box.style.height = `${viewport.height}px`;
-  const params = { canvas, viewport };
-  if (ratio !== 1) params.transform = [ratio, 0, 0, ratio, 0, 0];
+  if (!box) return;
+  if (box._busy) {
+    box._dirty = true;
+    return;
+  }
+  box._busy = true;
   try {
-    await page.render(params).promise;
-    if (box.dataset.renderedScale === String(scale)) {
-      box.replaceChildren(canvas);
-      if (placing?.page === n) attachOverlay();
-    }
-  } catch (err) {
-    console.error("PDF page render failed", err);
-    delete box.dataset.renderedScale;
-    box.textContent = `Could not draw page ${n}: ${err.message}`;
+    do {
+      box._dirty = false;
+      const startScale = scale;
+      const o = overlap(box);
+      if (!o.near) {
+        dropCanvas(box); // far from the screen: free the memory
+        continue;
+      }
+      if (!o.visible) continue; // near, but nothing of it on screen yet: leave as is
+      const have = box._win;
+      const covered = have && have.scale === startScale && o.visible.x >= have.x && o.visible.y >= have.y && o.visible.x + o.visible.w <= have.x + have.w && o.visible.y + o.visible.h <= have.y + have.h;
+      if (covered) continue;
+
+      const page = await pdf.getPage(n);
+      const viewport = page.getViewport({ scale: startScale });
+      box.style.width = `${viewport.width}px`;
+      box.style.height = `${viewport.height}px`;
+      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      // the area to draw: the visible part with spare around it, trimmed so the canvas stays a sane size
+      let w = o.window.w;
+      let h = o.window.h;
+      const pixels = w * h * ratio * ratio;
+      if (pixels > MAX_WINDOW_PIXELS) {
+        const k = Math.sqrt(MAX_WINDOW_PIXELS / pixels);
+        const cx = o.visible.x + o.visible.w / 2;
+        const cy = o.visible.y + o.visible.h / 2;
+        w = Math.max(o.visible.w, w * k);
+        h = Math.max(o.visible.h, h * k);
+        o.window = { x: Math.max(0, cx - w / 2), y: Math.max(0, cy - h / 2), w, h };
+      }
+      const win = { x: Math.floor(o.window.x), y: Math.floor(o.window.y), w: Math.ceil(Math.min(o.window.w, viewport.width - Math.floor(o.window.x))), h: Math.ceil(Math.min(o.window.h, viewport.height - Math.floor(o.window.y))), scale: startScale };
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.floor(win.w * ratio));
+      canvas.height = Math.max(1, Math.floor(win.h * ratio));
+      canvas.className = "pdf-window";
+      canvas.style.cssText = `position:absolute;left:${win.x}px;top:${win.y}px;width:${win.w}px;height:${win.h}px`;
+      try {
+        await page.render({ canvas, viewport, transform: [ratio, 0, 0, ratio, -win.x * ratio, -win.y * ratio] }).promise;
+      } catch (err) {
+        console.error("PDF page render failed", err);
+        box.dataset.error = err.message;
+        continue;
+      }
+      if (startScale !== scale) continue; // zoomed again meanwhile: this picture is for the old size
+      box.prepend(canvas);
+      box._canvas?.remove();
+      box._canvas = canvas;
+      box._win = win;
+      if (typeof placing !== "undefined" && placing?.page === n) attachOverlay();
+    } while (box._dirty);
+  } finally {
+    box._busy = false;
   }
 }
+
+let renderTimer = null;
+function renderVisible() {
+  clearTimeout(renderTimer);
+  renderTimer = null;
+  for (let n = 1; n <= pageBoxes.length; n++) renderPage(n);
+}
+const renderVisibleSoon = () => {
+  clearTimeout(renderTimer);
+  renderTimer = setTimeout(renderVisible, 70);
+};
 
 function setScale(next, anchor = null) {
   const before = scale;
   scale = Math.min(4, Math.max(0.25, next));
-  for (const box of pageBoxes) {
-    box.replaceChildren();
-    delete box.dataset.renderedScale;
-  }
-  // Resize placeholders using page 1's proportions; real size is applied when each page renders.
+  for (const box of pageBoxes) dropCanvas(box);
+  // Resize placeholders using page 1's proportions; real size is applied when each page is drawn.
   return pdf.getPage(1).then((p) => {
     const vp = p.getViewport({ scale });
     for (const box of pageBoxes) {
@@ -141,13 +206,40 @@ function setScale(next, anchor = null) {
       scroller.scrollLeft = (anchor.fx / before) * scale - anchor.cx;
       scroller.scrollTop = (anchor.fy / before) * scale - anchor.cy;
     }
-    observer.disconnect();
-    for (const box of pageBoxes) observer.observe(box);
     updatePageInfo();
+    renderVisible();
   });
 }
 
-// ----- mouse: wheel zooms (around the pointer), middle button drags the drawing around -----
+function updatePageInfo() {
+  if (!pdf) return;
+  const middle = scroller.scrollTop + scroller.clientHeight / 2;
+  let current = 1;
+  for (const box of pageBoxes) {
+    if (box.offsetTop <= middle) current = Number(box.dataset.page);
+    else break;
+  }
+  currentPage = current;
+  pageInfo.textContent = `Page ${current} of ${pdf.numPages} · ${Math.round(scale * 100)}%`;
+}
+
+let ticking = false;
+scroller.addEventListener("scroll", () => {
+  renderVisibleSoon(); // draw what has come into view
+  if (ticking) return;
+  ticking = true;
+  requestAnimationFrame(() => {
+    updatePageInfo();
+    ticking = false;
+  });
+});
+window.addEventListener("resize", renderVisibleSoon);
+
+document.getElementById("zoom-in").addEventListener("click", () => pdf && setScale(scale * 1.25));
+document.getElementById("zoom-out").addEventListener("click", () => pdf && setScale(scale / 1.25));
+document.getElementById("zoom-fit").addEventListener("click", () => pdf && setScale(fitScale));
+
+// ----- mouse: wheel zooms (around the pointer); left or middle button drags the drawing around -----
 let pendingScale = null;
 let zoomAnchor = null;
 let zoomTimer = null;
@@ -184,7 +276,10 @@ scroller.addEventListener("mousedown", (event) => {
   if (event.button === 1) event.preventDefault(); // no browser auto-scroll circle
 });
 scroller.addEventListener("pointerdown", (event) => {
-  if (event.button !== 1) return;
+  const middle = event.button === 1;
+  const left = event.button === 0 && event.pointerType === "mouse"; // a finger scrolls natively
+  if (!middle && !left) return;
+  if (event.target.closest(".qr-overlay")) return; // that drags the QR code, not the page
   event.preventDefault();
   pan = { x: event.clientX, y: event.clientY, left: scroller.scrollLeft, top: scroller.scrollTop };
   scroller.setPointerCapture(event.pointerId);
@@ -201,32 +296,6 @@ for (const type of ["pointerup", "pointercancel"]) {
     scroller.classList.remove("panning");
   });
 }
-
-function updatePageInfo() {
-  if (!pdf) return;
-  const middle = scroller.scrollTop + scroller.clientHeight / 2;
-  let current = 1;
-  for (const box of pageBoxes) {
-    if (box.offsetTop <= middle) current = Number(box.dataset.page);
-    else break;
-  }
-  currentPage = current;
-  pageInfo.textContent = `Page ${current} of ${pdf.numPages} · ${Math.round(scale * 100)}%`;
-}
-
-let ticking = false;
-scroller.addEventListener("scroll", () => {
-  if (ticking) return;
-  ticking = true;
-  requestAnimationFrame(() => {
-    updatePageInfo();
-    ticking = false;
-  });
-});
-
-document.getElementById("zoom-in").addEventListener("click", () => pdf && (setScale(scale * 1.25), updatePageInfo()));
-document.getElementById("zoom-out").addEventListener("click", () => pdf && (setScale(scale / 1.25), updatePageInfo()));
-document.getElementById("zoom-fit").addEventListener("click", () => pdf && (setScale(fitScale), updatePageInfo()));
 
 // ---------- placing the QR code on the drawing ----------
 // The designer drags the QR code to where it should go on the sheet (and resizes it), so nothing about the title block

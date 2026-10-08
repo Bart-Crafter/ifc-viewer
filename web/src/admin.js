@@ -118,7 +118,7 @@ async function render() {
 
 me = await loadMe();
 if (!me) {
-  app.innerHTML = `<div class="page narrow"><img src="/crafter-engineering-logo.png" alt="Crafter Engineering" class="brand-logo" /><h1>Administration</h1><div id="login"></div></div>`;
+  app.innerHTML = `<div class="page narrow"><img src="/crafter-engineering-logo-white.png" alt="Crafter Engineering" class="brand-logo" /><h1>Administration</h1><div id="login"></div></div>`;
   app.querySelector("#login").append(loginCard({ title: "Sign in", onSuccess: () => location.reload() }));
 } else if (me.mustChange) {
   passwordChangeModal();

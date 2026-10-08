@@ -11,7 +11,7 @@ const key = params.get("k");
 
 function page(inner) {
   app.innerHTML = `<div class="page narrow">
-    <img src="/crafter-engineering-logo.png" alt="Crafter Engineering" class="brand-logo" />
+    <img src="/crafter-engineering-logo-white.png" alt="Crafter Engineering" class="brand-logo" />
     ${inner}
   </div>`;
 }

@@ -111,7 +111,7 @@ export function showSecret({ title, intro, secret }) {
 export function topbarHtml(user) {
   return `
     <header class="topbar">
-      <a class="brand" href="/"><img src="/favicon.png" alt="" /><span>Crafter Engineering</span></a>
+      <a class="brand" href="/" aria-label="Crafter Engineering home"><img class="brand-wordmark" src="/crafter-engineering-logo-white.png" alt="Crafter Engineering" /></a>
       <nav>
         ${user?.isAdmin ? '<a href="/admin">Admin</a>' : ""}
         ${user ? `<span class="who">${esc(user.name)}</span><button type="button" class="secondary small" data-signout>Sign out</button>` : ""}

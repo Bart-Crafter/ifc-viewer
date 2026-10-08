@@ -102,6 +102,7 @@ async function init() {
 
   components.init();
   world.scene.setup();
+  world.scene.three.background = new THREE.Color(0x01202f); // the site's deep navy
 
   fragments = components.get(OBC.FragmentsManager);
   fragments.init(fragmentsWorkerUrl);
