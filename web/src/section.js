@@ -52,7 +52,9 @@ function dualSlider({ label, onChange }) {
     const r = ratioAt(event);
     // grab the handle you touched, or the nearer one if you tapped the bar
     dragging = event.target.dataset?.which ?? (Math.abs(r - value.lo) <= Math.abs(r - value.hi) ? "lo" : "hi");
-    track.setPointerCapture(event.pointerId);
+    try {
+      track.setPointerCapture(event.pointerId); // keeps the drag going if the finger leaves the bar
+    } catch {}
     move(dragging, r);
   });
   track.addEventListener("pointermove", (event) => dragging && move(dragging, ratioAt(event)));
@@ -116,6 +118,7 @@ export function createSectionBox({ world, box, button, raycaster, notify = () =>
   frame.visible = false;
   scene.add(frame);
 
+  let enabled = false; // the Section button is on: the cut is applied (panel open or closed)
   let panelOpen = false;
   const isCut = () => range.lo.some((v) => v > 0.001) || range.hi.some((v) => v < 0.999);
 
@@ -129,14 +132,14 @@ export function createSectionBox({ world, box, button, raycaster, notify = () =>
       if (range.lo[i] > 0.001) planes.push(new THREE.Plane(unit.clone(), -low[i]).applyMatrix4(placement));
       if (range.hi[i] < 0.999) planes.push(new THREE.Plane(unit.clone().negate(), high[i]).applyMatrix4(placement));
     }
-    renderer.clippingPlanes = planes;
+    renderer.clippingPlanes = enabled ? planes : []; // switched off: the whole model shows, settings are kept
     // a hair larger than the cut, so the outline isn't itself clipped away
     const grow = diagonal * 0.0015;
     outline.box.set(new THREE.Vector3(...low).addScalar(-grow), new THREE.Vector3(...high).addScalar(grow));
     frame.matrix.copy(placement);
     frame.matrixWorldNeedsUpdate = true;
-    frame.visible = panelOpen || isCut();
-    button.classList.toggle("active", panelOpen || isCut());
+    frame.visible = enabled && (panelOpen || isCut());
+    button.classList.toggle("active", enabled);
     world.renderer.needsUpdate = true;
   }
 
@@ -252,8 +255,13 @@ export function createSectionBox({ world, box, button, raycaster, notify = () =>
     liftView();
   };
 
-  // The button opens/closes the panel. The cut stays in place when the panel is closed (the button stays lit); Reset removes it.
-  button.addEventListener("click", () => showPanel(!panelOpen));
+  // The Section button switches the section box on and off. Off shows the whole model; switching it on again brings
+  // back the cut exactly as you left it. "Done" just tucks the panel away while the cut stays.
+  button.addEventListener("click", () => {
+    enabled = !enabled;
+    if (!enabled) stopAligning();
+    showPanel(enabled);
+  });
   panel.querySelector("[data-reset]").addEventListener("click", () => {
     sliders.forEach((s) => s.reset());
     range.lo = [0, 0, 0];
