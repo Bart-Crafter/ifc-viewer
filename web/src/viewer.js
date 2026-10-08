@@ -4,6 +4,7 @@ import CameraControls from "camera-controls";
 import fragmentsWorkerUrl from "@thatopen/fragments/worker?url";
 import { api } from "./common.js";
 import { createEdgePass } from "./edges.js";
+import { createSectionBox } from "./section.js";
 
 const id = location.pathname.split("/").filter(Boolean).pop(); // file id from /view/ifc/:id
 const HIGHLIGHT_STYLE = { color: new THREE.Color("orange"), opacity: 1, transparent: false, renderedFaces: 0 };
@@ -135,6 +136,9 @@ async function init() {
       const reset = document.getElementById("reset-view-button");
       reset.classList.remove("hidden");
       reset.addEventListener("click", () => world.camera.controls.fitToBox(box, true));
+      const sectionButton = document.getElementById("section-button");
+      sectionButton.classList.remove("hidden");
+      createSectionBox({ world, box, button: sectionButton });
     }
   }
 
@@ -248,11 +252,11 @@ async function setupShading(model, world) {
 
   shadingSelect.classList.remove("hidden");
   shadingSelect.addEventListener("change", () => apply(shadingSelect.value));
-  let saved = "shadows"; // default style; a choice made earlier on this device wins
+  let saved = "shaded"; // default style; a choice made earlier on this device wins
   try {
-    saved = localStorage.getItem("viewer-shading") || "shadows";
+    saved = localStorage.getItem("viewer-shading") || "shaded";
   } catch {}
-  if (![...shadingSelect.options].some((o) => o.value === saved)) saved = "shadows";
+  if (![...shadingSelect.options].some((o) => o.value === saved)) saved = "shaded";
   shadingSelect.value = saved;
   apply(saved); // every style uses the contrast lighting, so this always runs
 }
