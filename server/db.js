@@ -69,6 +69,14 @@ CREATE TABLE IF NOT EXISTS register_index (
   PRIMARY KEY (project_id, email)
 );
 CREATE INDEX IF NOT EXISTS register_index_email ON register_index(email);
+CREATE TABLE IF NOT EXISTS qr_stamps (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  item_id TEXT NOT NULL,
+  version_key TEXT NOT NULL,
+  rev TEXT,
+  stamped_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, item_id)
+);
 CREATE TABLE IF NOT EXISTS shares (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

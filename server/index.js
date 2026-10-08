@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { nanoid } from "nanoid";
 import QRCode from "qrcode";
 import { qrToDxf } from "./qr-dxf.js";
+import { stampQr, cleanStampOptions } from "./stamp.js";
 import { openDb } from "./db.js";
 import { FOLDERS, FOLDER_KEYS, REGISTER_NAME, ROLES, createRegister, editRegister, parseRegister } from "./register.js";
 import { createBackend } from "./storage-backends/index.js";
@@ -924,12 +925,14 @@ async function listing(project, key) {
   const hit = listings.get(cacheKey);
   if (hit && Date.now() - hit.at < LISTING_TTL_MS) return hit;
   const ref = await folderRef(project, key);
-  const [entries, cached, failures] = await Promise.all([
+  const [entries, cached, failures, stamps] = await Promise.all([
     storage.list(ref),
     storage.cacheList(ref),
     db.all("SELECT item_id, version_key, error FROM conversion_failures WHERE project_id = $1", [project.id]),
+    db.all("SELECT item_id, version_key, stamped_at FROM qr_stamps WHERE project_id = $1", [project.id]),
   ]);
   const failed = new Map(failures.map((f) => [f.item_id, f]));
+  const stamped = new Map(stamps.map((r) => [r.item_id, r]));
   const files = entries
     .filter((e) => !e.name.startsWith("~$") && !e.name.startsWith("."))
     .map((e) => {
@@ -944,7 +947,7 @@ async function listing(project, key) {
           error = failure.error;
         } else status = "processing";
       }
-      return { entry: e, status, error };
+      return { entry: e, status, error, qr: hasQr(stamped.get(e.id), e) };
     })
     // Revisions of one drawing sit together, newest first; everything else alphabetically.
     .sort((a, b) => {
@@ -975,7 +978,7 @@ api.get("/projects/:pid/files", projectCtx, needRole("viewer"), async (req, res)
   const [lists, groups] = await Promise.all([Promise.all(keys.map((k) => listing(req.project, k))), revisionGroups(req.project)]);
   const files = [];
   keys.forEach((key, i) => {
-    for (const { entry, status, error } of lists[i].files) {
+    for (const { entry, status, error, qr } of lists[i].files) {
       files.push({
         id: fileKey(req.project, key, entry),
         folder: key,
@@ -987,11 +990,55 @@ api.get("/projects/:pid/files", projectCtx, needRole("viewer"), async (req, res)
         updated_at: entry.modified,
         uploaded_by: entry.modifiedBy,
         revision: describeRevision(groups, entry, req.access),
+        qr: extOf(entry.name) === "pdf" ? qr : undefined, // has the site put its QR code on this PDF?
       });
     }
   });
   res.json({ role: req.role, via: req.access.via, folders: folderInfo(req.access, req.role), files });
 });
+
+// ---------- QR codes put onto PDFs ----------
+// A drawing's QR code depends only on its name (drawing + revision) and the project link, so it can be added to the
+// PDF as it is uploaded, with no chicken-and-egg: the designer exports the PDF, uploads it, and the site stamps it.
+const STAMP_MAX_BYTES = (Number(process.env.QR_STAMP_MAX_MB) || 50) * 1024 * 1024;
+
+// A file counts as stamped if we stamped this version of it (or, since SharePoint can touch a file's version stamp
+// right after an upload, if we stamped it moments before its last change).
+function hasQr(row, entry) {
+  if (!row) return false;
+  if (row.version_key === entry.versionKey) return true;
+  const gap = new Date(entry.modified) - new Date(row.stamped_at);
+  return gap < 2 * 60_000 && gap > -2 * 60_000;
+}
+
+const stampOptionsFrom = (query) =>
+  cleanStampOptions({ pos: query.qrpos, mm: query.qrmm, margin: query.qrmargin, pages: query.qrpages, caption: query.qrcaption });
+
+// Returns { path, note }: path is the file to store (the stamped copy, or the original if stamping wasn't possible).
+async function stampForUpload(req, folderKey, name, path, size) {
+  const rev = parseRevision(name);
+  if (extOf(name) !== "pdf") return { path, note: null };
+  if (!rev) return { path, note: "No QR code was added: the file name has no revision code (like C02)." };
+  if (size > STAMP_MAX_BYTES) return { path, note: `No QR code was added: the PDF is larger than ${Math.round(STAMP_MAX_BYTES / 1048576)} MB. Use the QR button on its own once uploaded, or add the code before exporting.` };
+  try {
+    const stamped = await stampQr(await fsp.readFile(path), documentLink(req, req.project, folderKey, { name }), stampOptionsFrom(req.query));
+    const out = `${path}.qr`;
+    await fsp.writeFile(out, stamped);
+    return { path: out, stamped: { rev: rev.rev }, note: `QR code added (revision ${rev.rev}).` };
+  } catch (err) {
+    console.error(`Could not add a QR code to ${name}:`, err.message);
+    return { path, note: `The file was uploaded, but the QR code couldn't be added (${err.message}).` };
+  }
+}
+
+async function recordStamp(project, entry, rev) {
+  await db.run(
+    `INSERT INTO qr_stamps (project_id, item_id, version_key, rev, stamped_at) VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (project_id, item_id) DO UPDATE SET version_key = EXCLUDED.version_key, rev = EXCLUDED.rev, stamped_at = EXCLUDED.stamped_at`,
+    [project.id, entry.id, entry.versionKey, rev, now()]
+  );
+}
+const forgetStamp = (project, itemId) => db.run("DELETE FROM qr_stamps WHERE project_id = $1 AND item_id = $2", [project.id, itemId]);
 
 // Uploading is a deliberate act of publishing: the person confirms we may share the file (third-party drawings, maps,
 // logos and standards are not ours to share). The page asks, and the server insists, so it is on record.
@@ -1010,9 +1057,11 @@ api.post("/projects/:pid/folders/:folder/files", projectCtx, needRole("designer"
     const ext = extOf(name);
     if (!(await looksLikeType(tmp, ext))) return res.status(400).json({ error: `That doesn't look like a valid ${ext.toUpperCase()} file.` });
 
+    // Optionally stamp the drawing's QR code onto the PDF before it is stored (only in the PDF folder).
+    const stamp = req.query.qr === "1" && key === "pdf" ? await stampForUpload(req, key, name, tmp, req.file.size) : { path: tmp, note: null };
     let entry;
     try {
-      entry = await storage.create(await folderRef(req.project, key), name, tmp);
+      entry = await storage.create(await folderRef(req.project, key), name, stamp.path);
     } catch (err) {
       if (err.code === "exists") {
         return res.status(409).json({ error: `"${name}" already exists in ${FOLDER_BY_KEY[key].label}. Use Replace to upload a new version.` });
@@ -1020,7 +1069,12 @@ api.post("/projects/:pid/folders/:folder/files", projectCtx, needRole("designer"
       throw err;
     }
     invalidate(req.project, key);
-    await audit(req, "file_uploaded", { projectId: req.project.id, fileId: fileKey(req.project, key, entry), detail: `${name} → ${FOLDER_BY_KEY[key].label} (sharing rights confirmed)` });
+    if (stamp.stamped) await recordStamp(req.project, entry, stamp.stamped.rev);
+    await audit(req, "file_uploaded", {
+      projectId: req.project.id,
+      fileId: fileKey(req.project, key, entry),
+      detail: `${name} → ${FOLDER_BY_KEY[key].label} (sharing rights confirmed${stamp.stamped ? "; QR code added" : ""})`,
+    });
     // Tell the uploader how this revision sits with the others (a stale upload is easy to do by mistake).
     let note = null;
     const mine = describeRevision(await revisionGroups(req.project), entry, req.access);
@@ -1029,9 +1083,11 @@ api.post("/projects/:pid/folders/:folder/files", projectCtx, needRole("designer"
       const older = (await revisionGroups(req.project)).get(mine.series)?.filter((i) => i.rev !== mine.rev).length ?? 0;
       if (older) note = `${mine.rev} is now the latest revision. ${older} older revision${older === 1 ? " is" : "s are"} marked as superseded.`;
     }
-    res.status(201).json({ id: fileKey(req.project, key, entry), name, folder: key, note });
+    note = [stamp.note, note].filter(Boolean).join(" ") || null;
+    res.status(201).json({ id: fileKey(req.project, key, entry), name, folder: key, note, qr: !!stamp.stamped });
   } finally {
     if (tmp) fsp.rm(tmp, { force: true }).catch(() => {});
+    if (tmp) fsp.rm(`${tmp}.qr`, { force: true }).catch(() => {});
   }
 });
 
@@ -1179,13 +1235,49 @@ api.put("/files/:fid", fileCtx, needRole("designer"), needFolder, needRights, lo
       forced = ` (overwrote ${conflict.from} with a file named ${incoming})`;
     }
 
-    await storage.replace(req.ref, e.id, tmp);
+    // The corrected file from CAD has no QR code yet: put one on it before it takes the old file's place.
+    const stamp = req.query.qr === "1" && req.folderKey === "pdf" ? await stampForUpload(req, req.folderKey, e.name, tmp, req.file.size) : { path: tmp, note: null };
+    const updated = await storage.replace(req.ref, e.id, stamp.path);
     invalidate(req.project, req.folderKey);
-    await audit(req, "file_replaced", { projectId: req.project.id, fileId: fileKey(req.project, req.folderKey, e), detail: e.name + forced });
-    res.json({ ok: true });
+    if (stamp.stamped && updated) await recordStamp(req.project, updated, stamp.stamped.rev);
+    else await forgetStamp(req.project, e.id); // new content: whatever stamp the old file had is gone
+    await audit(req, "file_replaced", { projectId: req.project.id, fileId: fileKey(req.project, req.folderKey, e), detail: e.name + forced + (stamp.stamped ? " (QR code added)" : "") });
+    res.json({ ok: true, note: stamp.note, qr: !!stamp.stamped });
   } finally {
     if (tmp) fsp.rm(tmp, { force: true }).catch(() => {});
+    if (tmp) fsp.rm(`${tmp}.qr`, { force: true }).catch(() => {});
   }
+});
+
+// Add the QR code to a PDF that is already on the site (including ones staff dropped straight into OneDrive).
+api.post("/files/:fid/stamp-qr", fileCtx, needRole("designer"), needFolder, loadFile, async (req, res) => {
+  const e = req.entry;
+  if (typeOf(e.name) !== "pdf") return res.status(400).json({ error: "QR codes can only be added to PDFs." });
+  const rev = parseRevision(e.name);
+  if (!rev) return res.status(400).json({ error: "The file name needs a revision code (like C02) before a QR code can be added." });
+  if (e.size > STAMP_MAX_BYTES) return res.status(413).json({ error: `That PDF is larger than ${Math.round(STAMP_MAX_BYTES / 1048576)} MB, too large to stamp here.` });
+  const row = await db.one("SELECT version_key, stamped_at FROM qr_stamps WHERE project_id = $1 AND item_id = $2", [req.project.id, e.id]);
+  if (hasQr(row, e)) return res.status(409).json({ error: "This PDF already has its QR code." });
+
+  const { stream } = await storage.read(req.ref, e.id);
+  const original = await readAll(stream);
+  let stamped;
+  try {
+    stamped = await stampQr(original, documentLink(req, req.project, req.folderKey, e), stampOptionsFrom(req.query));
+  } catch (err) {
+    return res.status(422).json({ error: `The QR code couldn't be added: ${err.message}` });
+  }
+  const out = path.join(tmpDir, nanoid(16));
+  try {
+    await fsp.writeFile(out, stamped);
+    const updated = await storage.replace(req.ref, e.id, out); // SharePoint keeps the previous version in its history
+    if (updated) await recordStamp(req.project, updated, rev.rev);
+  } finally {
+    fsp.rm(out, { force: true }).catch(() => {});
+  }
+  invalidate(req.project, req.folderKey);
+  await audit(req, "qr_added", { projectId: req.project.id, fileId: fileKey(req.project, req.folderKey, e), detail: e.name });
+  res.json({ ok: true, note: `QR code added to ${e.name}.` });
 });
 
 api.patch("/files/:fid", fileCtx, needRole("designer"), needFolder, loadFile, async (req, res) => {
@@ -1221,6 +1313,7 @@ api.delete("/files/:fid", fileCtx, needRole("designer"), needFolder, loadFile, a
   await storage.remove(req.ref, e.id); // SharePoint keeps it in the recycle bin
   invalidate(req.project, req.folderKey);
   await db.run("DELETE FROM conversion_failures WHERE project_id = $1 AND item_id = $2", [req.project.id, e.id]);
+  await forgetStamp(req.project, e.id);
   storage.cachePurge(req.ref, `${e.id}_`).catch(() => {});
   await audit(req, "file_deleted", { projectId: req.project.id, detail: e.name });
   res.status(204).end();
