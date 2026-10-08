@@ -353,6 +353,34 @@ async function showDocumentQr(file) {
   });
 }
 
+// Same reading of "name + space + revision code" as the server (the server is what actually enforces it).
+function revisionParts(name) {
+  const m = /^(.*\S)[\s_-]+([A-Za-z])(\d{2,3})$/.exec(name.replace(/\.[^.]+$/, ""));
+  return m ? { base: m[1].trim().toLowerCase(), rev: `${m[2].toUpperCase()}${m[3]}` } : null;
+}
+
+// A "replace" whose new file is named as a different revision (or a different drawing) is almost always a new issue
+// that should be uploaded as its own file, so the old revision is kept.
+function askRevisionMismatch({ existing, incoming, canForce, message }) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `
+      <h3>This looks like a new revision</h3>
+      <p>${esc(message)}</p>
+      <p class="muted small">Existing file: <strong>${esc(existing)}</strong><br />New file: <strong>${esc(incoming)}</strong></p>
+      <div class="modal-actions">
+        <button type="button" class="secondary" data-cancel>Cancel</button>
+        ${canForce ? '<button type="button" class="secondary danger" data-force>Replace anyway</button>' : ""}
+        <button type="button" data-new>Upload as a new file</button>
+      </div>`;
+    const { close } = openModal(wrap, { closable: false });
+    const done = (value) => (close(), resolve(value));
+    wrap.querySelector("[data-cancel]").addEventListener("click", () => done(null));
+    wrap.querySelector("[data-new]").addEventListener("click", () => done("new"));
+    wrap.querySelector("[data-force]")?.addEventListener("click", () => done("force"));
+  });
+}
+
 async function fileAction(action, id) {
   const file = files.find((f) => f.id === id);
   if (!file) return;
@@ -364,26 +392,59 @@ async function fileAction(action, id) {
     } else if (action === "rename") {
       const name = prompt("New file name:", file.name);
       if (!name || name === file.name) return;
-      await api(`/api/files/${id}`, { method: "PATCH", json: { name } });
+      try {
+        await api(`/api/files/${id}`, { method: "PATCH", json: { name } });
+      } catch (err) {
+        if (err.data?.code !== "revision_mismatch") throw err;
+        // Changing the revision code of an existing file is issuing a new revision: ask for a new upload instead.
+        if (!err.data.canForce) return toast(err.message, "error");
+        if (!confirm(`${err.message}
+
+Rename anyway?`)) return;
+        await api(`/api/files/${id}`, { method: "PATCH", json: { name, force: true } });
+      }
     } else if (action === "replace") {
       const input = document.createElement("input");
       input.type = "file";
       const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")) : "";
       if (ext) input.accept = ext;
       input.addEventListener("change", async () => {
-        if (!input.files[0] || !(await confirmRights())) return;
+        const chosen = input.files[0];
+        if (!chosen || !(await confirmRights())) return;
         const status = document.querySelector(`[data-status="${file.folder}"]`);
+        const progress = (label) => (p) => (status.textContent = `${label} ${chosen.name}… ${Math.round(p * 100)}%`);
         try {
-          await uploadFile(`/api/files/${id}?rights=1`, "PUT", input.files[0], (p) => {
-            status.textContent = `Replacing ${file.name}… ${Math.round(p * 100)}%`;
-          });
+          // Check the names first, so a big model isn't uploaded only to be turned down.
+          const was = revisionParts(file.name);
+          const now = revisionParts(chosen.name);
+          let force = false;
+          if (was && now && (was.rev !== now.rev || was.base !== now.base)) {
+            const sameDrawing = was.base === now.base;
+            const choice = await askRevisionMismatch({
+              existing: file.name,
+              incoming: chosen.name,
+              canForce: can(role, "admin"),
+              message: sameDrawing
+                ? `You are replacing revision ${was.rev} with a file named as revision ${now.rev}. Replacing would overwrite ${was.rev} and lose it. Upload it as a new file instead, so both revisions are kept.`
+                : "The new file looks like a different drawing, not a corrected copy of this one. Upload it as a new file instead.",
+            });
+            if (!choice) return;
+            if (choice === "new") {
+              const result = await uploadFile(`${P}/folders/${file.folder}/files?rights=1`, "POST", chosen, progress("Uploading"));
+              toast(result?.note || `"${chosen.name}" uploaded as a new file.`);
+              return;
+            }
+            force = true;
+          }
+          await uploadFile(`/api/files/${id}?rights=1${force ? "&force=1" : ""}`, "PUT", chosen, progress("Replacing"));
           toast(`"${file.name}" replaced with the new version.`);
         } catch (err) {
           toast(err.message, "error");
+        } finally {
+          status.textContent = "";
+          await loadFiles();
+          renderFolders();
         }
-        status.textContent = "";
-        await loadFiles();
-        renderFolders();
       });
       input.click();
       return;

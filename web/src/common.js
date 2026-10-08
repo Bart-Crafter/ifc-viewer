@@ -32,6 +32,7 @@ export async function api(url, { method = "GET", json, form } = {}) {
   if (!res.ok) {
     const err = new Error(data?.error || res.statusText || "Request failed");
     err.status = res.status;
+    err.data = data;
     throw err;
   }
   return data;
@@ -51,6 +52,7 @@ export function uploadFile(url, method, file, onProgress) {
       if (xhr.status >= 200 && xhr.status < 300) return resolve(data);
       const err = new Error(data?.error || "Upload failed.");
       err.status = xhr.status;
+      err.data = data;
       reject(err);
     };
     xhr.onerror = () => reject(new Error("Network error during upload."));

@@ -795,6 +795,17 @@ function parseRevision(name) {
 // Files that are revisions of the same drawing share a series: same name apart from the revision, same file type.
 const seriesOf = (name) => `${extOf(name)}:${(parseRevision(name)?.base ?? name.replace(/\.[^.]+$/, "")).toLowerCase()}`;
 
+// A designer "replacing" file C01 with a file named C02 overwrites the old revision instead of issuing a new one. Spot a
+// replacement (or rename) that changes the revision code, or swaps in a differently named drawing.
+function revisionConflict(oldName, newName, { allowRename = false } = {}) {
+  const was = parseRevision(oldName);
+  const now = parseRevision(newName);
+  if (!was || !now) return null; // no revision codes on one side: nothing to compare
+  const sameDrawing = was.base.toLowerCase() === now.base.toLowerCase();
+  if (was.rev === now.rev && (sameDrawing || allowRename)) return null;
+  return { from: was.rev, to: now.rev, sameDrawing };
+}
+
 // Every revision of every drawing in the project, across all five folders (so "newer exists" is known even when
 // the newer one is in a folder this person can't open).
 async function revisionGroups(project) {
@@ -1123,9 +1134,30 @@ api.put("/files/:fid", fileCtx, needRole("designer"), needFolder, needRights, lo
     if (extOf(uploadedName(req.file)) !== ext) return res.status(400).json({ error: `The new file must be a .${ext} file.` });
     if (!(await looksLikeType(tmp, ext))) return res.status(400).json({ error: `That doesn't look like a valid ${ext.toUpperCase()} file.` });
 
+    const incoming = uploadedName(req.file);
+    const conflict = revisionConflict(e.name, incoming);
+    let forced = "";
+    if (conflict) {
+      // Only a project admin may overwrite a revision with a different one (e.g. to fix a mistake); everyone else is
+      // sent to upload it as a new file, which keeps the old revision.
+      if (!(req.query.force === "1" && can(req.role, "admin"))) {
+        return res.status(409).json({
+          code: "revision_mismatch",
+          from: conflict.from,
+          to: conflict.to,
+          sameDrawing: conflict.sameDrawing,
+          canForce: can(req.role, "admin"),
+          error: conflict.sameDrawing
+            ? `"${incoming}" is revision ${conflict.to}, but you are replacing revision ${conflict.from}. Replacing would overwrite ${conflict.from} and lose it. Upload it as a new file instead, so both revisions are kept.`
+            : `"${incoming}" looks like a different drawing from "${e.name}". Replace is only for a corrected copy of the same file; upload this one as a new file.`,
+        });
+      }
+      forced = ` (overwrote ${conflict.from} with a file named ${incoming})`;
+    }
+
     await storage.replace(req.ref, e.id, tmp);
     invalidate(req.project, req.folderKey);
-    await audit(req, "file_replaced", { projectId: req.project.id, fileId: fileKey(req.project, req.folderKey, e), detail: e.name });
+    await audit(req, "file_replaced", { projectId: req.project.id, fileId: fileKey(req.project, req.folderKey, e), detail: e.name + forced });
     res.json({ ok: true });
   } finally {
     if (tmp) fsp.rm(tmp, { force: true }).catch(() => {});
@@ -1139,6 +1171,15 @@ api.patch("/files/:fid", fileCtx, needRole("designer"), needFolder, loadFile, as
   if (!name) return res.status(400).json({ error: "Enter a file name." });
   if (extOf(name) !== ext) name = `${name}.${ext}`;
   if (name === e.name) return res.json({ name, id: fileKey(req.project, req.folderKey, e) });
+  // Changing the revision code of an existing file is re-issuing it as another revision, which should be a new upload.
+  const conflict = revisionConflict(e.name, name, { allowRename: true });
+  if (conflict && !(req.body?.force === true && can(req.role, "admin"))) {
+    return res.status(409).json({
+      code: "revision_mismatch",
+      canForce: can(req.role, "admin"),
+      error: `Renaming would change this file from revision ${conflict.from} to ${conflict.to}. To issue a new revision, upload it as a new file so ${conflict.from} is kept.`,
+    });
+  }
   let renamed;
   try {
     renamed = await storage.rename(req.ref, e.id, name);
