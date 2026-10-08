@@ -705,3 +705,5 @@ a.button, label.button { display: inline-flex; align-items: center; justify-cont
 .legal-note { margin: 2rem 0 0; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 0.75rem; line-height: 1.5; }
 .check-line { display: flex; gap: 0.6rem; align-items: flex-start; margin: 0.5rem 0 1rem; cursor: pointer; }
 .check-line input { width: 1.2rem; height: 1.2rem; margin: 0.15rem 0 0; flex: none; accent-color: var(--accent); }
+.new-person { display: contents; }
+.new-person.hidden { display: none !important; }

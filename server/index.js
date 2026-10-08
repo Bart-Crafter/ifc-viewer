@@ -721,6 +721,27 @@ api.post("/projects/:pid/members", projectCtx, needRole("admin"), async (req, re
   res.status(201).json({ member: { email: user.email, name: user.name, role }, tempPassword });
 });
 
+// Registered people an admin can pick from when giving access (those not already on this project).
+// Site admins see every active account. A project admin only sees people who already belong to a project that
+// admin also administers, so one client's details aren't shown to another project's admin.
+api.get("/projects/:pid/directory", projectCtx, needRole("admin"), async (req, res) => {
+  const rows = req.user.is_admin
+    ? await db.all(
+        `SELECT email, name FROM users WHERE disabled = 0
+            AND email NOT IN (SELECT email FROM register_index WHERE project_id = $1) ORDER BY lower(name)`,
+        [req.project.id]
+      )
+    : await db.all(
+        `SELECT email, name FROM users WHERE disabled = 0
+            AND email NOT IN (SELECT email FROM register_index WHERE project_id = $1)
+            AND email IN (SELECT email FROM register_index WHERE project_id IN
+                  (SELECT project_id FROM register_index WHERE email = $2 AND role = 'admin'))
+          ORDER BY lower(name)`,
+        [req.project.id, req.user.email]
+      );
+  res.json(rows);
+});
+
 api.patch("/projects/:pid/members/:email", projectCtx, needRole("admin"), async (req, res) => {
   const email = String(req.params.email).toLowerCase();
   const role = req.body?.role;

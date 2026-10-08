@@ -501,6 +501,7 @@ async function renderAccess() {
     return;
   }
   const isAdmin = data.canManagePeople;
+  const directory = isAdmin ? await api(`${P}/directory`).catch(() => []) : [];
   const folderCols = data.folders;
   const roleOptions = (selected) =>
     Object.keys(ROLE_LABELS)
@@ -558,12 +559,21 @@ async function renderAccess() {
       isAdmin
         ? `<h3>Give someone access</h3>
     <form id="add-member" class="inline-form">
-      <label>Email<input type="email" name="email" required /></label>
-      <label>Name (for new accounts)<input name="name" maxlength="120" /></label>
+      <label>Person
+        <select name="person">
+          ${directory.length ? '<option value="">Choose a registered person…</option>' : ""}
+          ${directory.map((d) => `<option value="${esc(d.email)}">${esc(d.name)} (${esc(d.email)})</option>`).join("")}
+          <option value="__new__" ${directory.length ? "" : "selected"}>＋ Add a new person…</option>
+        </select>
+      </label>
+      <span id="new-person" class="new-person ${directory.length ? "hidden" : ""}">
+        <label>Email<input type="email" name="email" /></label>
+        <label>Name<input name="name" maxlength="120" /></label>
+      </span>
       <label>Role<select name="role">${roleOptions("client")}</select></label>
       <button type="submit">Give access</button>
     </form>
-    <p class="muted small">If the email doesn't have an account yet, one is created with a temporary password for you to pass on. New viewers and clients start with the public folders; tick more above.</p>
+    <p class="muted small">Pick someone who already has an account, or add a new person: an account is created with a temporary password for you to pass on. New viewers and clients start with the public folders; tick more above.</p>
     <p class="error" id="member-error"></p>`
         : ""
     }`;
@@ -606,19 +616,35 @@ async function renderAccess() {
       }
     })
   );
-  card.querySelector("#add-member")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = event.target;
-    try {
-      const result = await api(`${P}/members`, { method: "POST", json: { email: form.email.value, name: form.name.value, role: form.role.value } });
-      await renderAccess();
-      if (result.tempPassword) {
-        showSecret({ title: `Account created for ${result.member.email}`, intro: "Their temporary password:", secret: result.tempPassword });
-      } else toast(`${result.member.email} now has ${ROLE_LABELS[result.member.role]} access.`);
-    } catch (err) {
-      card.querySelector("#member-error").textContent = err.message;
-    }
-  });
+  const addForm = card.querySelector("#add-member");
+  if (addForm) {
+    const newFields = addForm.querySelector("#new-person");
+    const sync = () => {
+      const isNew = addForm.person.value === "__new__";
+      newFields.classList.toggle("hidden", !isNew);
+      addForm.email.required = isNew;
+    };
+    addForm.person.addEventListener("change", sync);
+    sync();
+    addForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const isNew = addForm.person.value === "__new__";
+      const email = isNew ? addForm.email.value : addForm.person.value;
+      if (!email) {
+        card.querySelector("#member-error").textContent = "Choose a person, or add a new one.";
+        return;
+      }
+      try {
+        const result = await api(`${P}/members`, { method: "POST", json: { email, name: isNew ? addForm.name.value : undefined, role: addForm.role.value } });
+        await renderAccess();
+        if (result.tempPassword) {
+          showSecret({ title: `Account created for ${result.member.email}`, intro: "Their temporary password:", secret: result.tempPassword });
+        } else toast(`${result.member.email} now has ${ROLE_LABELS[result.member.role]} access.`);
+      } catch (err) {
+        card.querySelector("#member-error").textContent = err.message;
+      }
+    });
+  }
 }
 
 // ---------- activity (project admins) ----------
