@@ -23,31 +23,36 @@ const FRAGMENT = /* glsl */ `
   uniform float strength;
   varying vec2 vUv;
 
-  float viewDepth(vec2 uv) {
+  // 1 / distance from the camera. Unlike the distance itself this changes in a straight line across a flat
+  // surface however steeply it is viewed, so flat surfaces never look like edges, and a step to another
+  // element shows up as a clean jump whether it is near or far.
+  float invDepth(vec2 uv) {
     float z = texture2D(tDepth, uv).x * 2.0 - 1.0;
-    return (2.0 * cameraNear * cameraFar) / (cameraFar + cameraNear - z * (cameraFar - cameraNear));
+    float d = (2.0 * cameraNear * cameraFar) / (cameraFar + cameraNear - z * (cameraFar - cameraNear));
+    return 1.0 / d;
   }
 
   void main() {
-    vec3 n = texture2D(tNormal, vUv).xyz * 2.0 - 1.0;
-    float d = viewDepth(vUv);
     vec2 ox = vec2(texel.x, 0.0);
     vec2 oy = vec2(0.0, texel.y);
-
-    vec3 nl = texture2D(tNormal, vUv - ox).xyz * 2.0 - 1.0;
+    vec3 n = texture2D(tNormal, vUv).xyz * 2.0 - 1.0;
     vec3 nr = texture2D(tNormal, vUv + ox).xyz * 2.0 - 1.0;
-    vec3 nd = texture2D(tNormal, vUv - oy).xyz * 2.0 - 1.0;
     vec3 nu = texture2D(tNormal, vUv + oy).xyz * 2.0 - 1.0;
-    float crease = max(max(1.0 - dot(n, nl), 1.0 - dot(n, nr)), max(1.0 - dot(n, nd), 1.0 - dot(n, nu)));
+    // creases between faces (only against the right/upper neighbour, so the line is one pixel wide)
+    float crease = max(1.0 - dot(n, nr), 1.0 - dot(n, nu));
 
-    float dl = viewDepth(vUv - ox);
-    float dr = viewDepth(vUv + ox);
-    float dd = viewDepth(vUv - oy);
-    float du = viewDepth(vUv + oy);
-    // second difference: ~0 on a flat (even slanted) surface, large at a jump in distance
-    float jump = (abs(dl + dr - 2.0 * d) + abs(dd + du - 2.0 * d)) / d;
+    float i = invDepth(vUv);
+    float il = invDepth(vUv - ox);
+    float ir = invDepth(vUv + ox);
+    float id = invDepth(vUv - oy);
+    float iu = invDepth(vUv + oy);
+    // Second difference is ~0 on a flat surface. Beside a step it is negative on the nearer side only, so the
+    // outline is drawn once, on the near element's edge, one pixel wide.
+    float stepX = (ir + il - 2.0 * i) / i;
+    float stepY = (iu + id - 2.0 * i) / i;
+    float jump = max(-stepX, -stepY);
 
-    float edge = max(smoothstep(0.12, 0.45, crease), smoothstep(0.012, 0.05, jump));
+    float edge = max(smoothstep(0.25, 0.55, crease), smoothstep(0.004, 0.02, jump));
     gl_FragColor = vec4(edgeColor, edge * strength);
   }
 `;
@@ -57,7 +62,7 @@ export function createEdgePass(world) {
   const scene = world.scene.three;
   const camera = world.camera.three;
 
-  const normalMaterial = new THREE.MeshNormalMaterial();
+  const normalMaterial = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide }); // double-sided like the model, or back faces would leave holes
   const quadScene = new THREE.Scene();
   const quadCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   const quadMaterial = new THREE.ShaderMaterial({
@@ -73,7 +78,7 @@ export function createEdgePass(world) {
       cameraNear: { value: 1 },
       cameraFar: { value: 1000 },
       edgeColor: { value: new THREE.Color(0x0b0e12) },
-      strength: { value: 0.6 },
+      strength: { value: 0.55 },
     },
   });
   const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), quadMaterial);
@@ -95,18 +100,22 @@ export function createEdgePass(world) {
       magFilter: THREE.NearestFilter,
       depthTexture: new THREE.DepthTexture(size.x, size.y, THREE.UnsignedIntType),
     });
-    const px = Math.max(1, Math.round(renderer.getPixelRatio()));
-    quadMaterial.uniforms.texel.value.set(px / size.x, px / size.y);
+    quadMaterial.uniforms.texel.value.set(1 / size.x, 1 / size.y); // one device pixel: as thin as a line can be
   }
 
   function render() {
     if (!enabled || size.x < 0) return;
     ensureTarget();
 
-    // Leave out anything that shouldn't be outlined: not-yet-loaded placeholder boxes, lines (rulers), ground shadow plane.
+    // Leave out anything that shouldn't be outlined: not-yet-loaded placeholder boxes, glass and other see-through
+    // elements (drawn opaque here they would outline things that look empty), lines (rulers), the ground shadow plane.
     const hidden = [];
     scene.traverse((o) => {
-      if (o.visible && ((o.isMesh && o.material?.isShaderMaterial) || o.isLine || o.isPoints || o.userData.noOutline)) {
+      // (a mesh's material may be a single material or a list of them)
+      const mats = o.isMesh ? [].concat(o.material ?? []) : [];
+      const placeholder = mats.some((m) => m.isShaderMaterial);
+      const seeThrough = mats.some((m) => m.transparent || m.opacity < 0.99);
+      if (o.visible && (placeholder || seeThrough || o.isLine || o.isPoints || o.userData.noOutline)) {
         o.visible = false;
         hidden.push(o);
       }

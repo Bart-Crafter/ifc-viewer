@@ -219,6 +219,7 @@ async function setupShading(model, world) {
 
   async function apply(next) {
     mode = next;
+    showEdges(edgesStored(next));
     clayModel = next === "clay" ? model : null;
     await model.resetOpacity(undefined);
     await model.resetColor(undefined);
@@ -235,24 +236,29 @@ async function setupShading(model, world) {
     } catch {}
   }
 
-  // Outlines on/off (on by default, remembered on this device)
+  // Outlines: on by default for Shaded and Clay, off for Realistic. The button overrides that, remembered per style on this device.
   const edgePass = createEdgePass(world);
   const edgesButton = document.getElementById("edges-button");
-  let edgesOn = true;
-  try {
-    edgesOn = localStorage.getItem("viewer-edges") !== "off";
-  } catch {}
-  const showEdges = (on) => {
+  const EDGES_DEFAULT = { shadows: false, shaded: true, clay: true };
+  const edgesStored = (style) => {
+    try {
+      const v = localStorage.getItem(`viewer-edges-${style}`);
+      if (v) return v === "on";
+    } catch {}
+    return EDGES_DEFAULT[style] ?? false;
+  };
+  let edgesOn = false;
+  const showEdges = (on, { remember = false } = {}) => {
     edgesOn = on;
     edgePass.setEnabled(on);
     edgesButton.classList.toggle("active", on);
+    if (!remember) return;
     try {
-      localStorage.setItem("viewer-edges", on ? "on" : "off");
+      localStorage.setItem(`viewer-edges-${mode}`, on ? "on" : "off");
     } catch {}
   };
   edgesButton.classList.remove("hidden");
-  edgesButton.addEventListener("click", () => showEdges(!edgesOn));
-  showEdges(edgesOn);
+  edgesButton.addEventListener("click", () => showEdges(!edgesOn, { remember: true }));
 
   shadingSelect.classList.remove("hidden");
   shadingSelect.addEventListener("change", () => apply(shadingSelect.value));
