@@ -181,6 +181,7 @@ function render() {
       </div>
     </div>
     ${isDesigner ? '<div class="send-bar card" id="send-bar"></div>' : ""}
+    <div id="recent"></div>
     <div id="folders"></div>
     ${isDesigner ? '<section class="card" id="quick-card"></section><section class="card" id="access-card"></section>' : ""}
     ${isAdmin ? '<section class="card" id="activity-card"></section>' : ""}
@@ -220,16 +221,15 @@ function fileRow(f) {
     actions.push(`<button type="button" class="secondary small danger" data-action="delete" data-id="${f.id}">Delete</button>`);
   }
   const r = f.revision;
-  const qrBadge = f.qr ? ' <span class="badge ok" title="This PDF has its QR code on it">QR ✓</span>' : "";
+  const qrBadge = f.qr ? ' <span class="badge ok" title="This PDF has the project QR code on it">QR ✓</span>' : "";
   const revBadges = qrBadge + (r
     ? r.superseded
       ? `<span class="badge rev" title="Revision ${esc(r.rev)}">${esc(r.rev)}</span> <span class="badge bad" title="The latest revision is ${esc(r.latestRev)}">Superseded by ${esc(r.latestRev)}</span>`
       : `<span class="badge rev" title="Revision ${esc(r.rev)}">${esc(r.rev)}</span> <span class="badge ok">Latest</span>`
     : "");
-  // A drawing's link works for anyone who may see it; designers can also put its QR code onto the PDF.
-  if (can(role, "designer") && (f.type === "pdf" || f.type === "ifc")) {
-    if (f.type === "pdf" && f.revision && !f.qr) actions.push(`<button type="button" class="secondary small" data-action="addqr" data-id="${f.id}" title="Open the drawing and place its QR code">Add QR</button>`);
-    actions.push(`<button type="button" class="secondary small" data-action="copylink" data-id="${f.id}" title="Copy the link that always opens the newest revision">Copy link</button>`);
+  // Designers can place the project's QR code onto a PDF (the same code on every sheet).
+  if (can(role, "designer") && f.type === "pdf" && !f.qr) {
+    actions.push(`<button type="button" class="secondary small" data-action="addqr" data-id="${f.id}" title="Open the drawing and place the project QR code on it">Add QR</button>`);
   }
   return `
     <div class="file-row ${r?.superseded ? "superseded" : ""}">
@@ -256,7 +256,38 @@ function renderSendBar() {
   bar.querySelector("#send-files").addEventListener("click", showSend);
 }
 
+// So people holding a printed sheet can tell at a glance whether something newer has been issued since.
+const RECENT_DAYS = 14;
+function renderRecent() {
+  const host = document.getElementById("recent");
+  if (!host) return;
+  const since = Date.now() - RECENT_DAYS * 86_400_000;
+  const recent = files
+    .filter((f) => f.revision && !f.revision.superseded && new Date(f.updated_at).getTime() >= since)
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, 12);
+  if (!recent.length) {
+    host.innerHTML = "";
+    return;
+  }
+  host.innerHTML = `<section class="card recent-card">
+    <h2>Recently issued <span class="count">${recent.length}</span></h2>
+    <p class="muted small">Drawings issued or revised in the last ${RECENT_DAYS} days. Check the revision on the sheet you are holding against the one listed here.</p>
+    ${recent
+      .map((f) => {
+        const viewable = f.type === "pdf" || (f.type === "ifc" && f.status === "ready");
+        const href = `/view/${f.type}/${encodeURIComponent(f.id)}`;
+        return `<div class="recent-row">
+          <span class="file-name">${viewable ? `<a href="${href}">${esc(f.name)}</a>` : esc(f.name)}</span>
+          <span><span class="badge rev">${esc(f.revision.rev)}</span> <span class="muted small">${f.revision.previousRev ? `replaces ${esc(f.revision.previousRev)}` : "new drawing"} · ${fmtDate(f.updated_at)}</span></span>
+        </div>`;
+      })
+      .join("")}
+  </section>`;
+}
+
 function renderFolders() {
+  renderRecent();
   const host = document.getElementById("folders");
   if (hideOld === null) hideOld = !can(role, "designer");
   const oldCount = files.filter((f) => f.revision?.superseded).length;
@@ -370,16 +401,6 @@ async function fileAction(action, id) {
     location.href = `/view/pdf/${encodeURIComponent(id)}?qr=1`; // placed on the drawing itself, in the viewer
     return;
   }
-  if (action === "copylink") {
-    try {
-      const link = await api(`/api/files/${encodeURIComponent(id)}/link`);
-      await navigator.clipboard.writeText(link.url);
-      toast("Link copied. It always opens the newest revision of this drawing.");
-    } catch (err) {
-      toast(err.name === "NotAllowedError" ? "Couldn't copy automatically." : err.message, "error");
-    }
-    return;
-  }
   try {
     if (action === "delete") {
       if (!confirm(`Delete "${file.name}"? It goes to the SharePoint recycle bin.`)) return;
@@ -472,7 +493,7 @@ async function showShare() {
         ${data.canReset ? '<button type="button" class="secondary danger" data-reset>Reset link</button>' : ""}
         <button type="button" data-close>Close</button>
       </div>
-      ${data.canReset ? '<p class="muted small">Reset if the link or QR has been shared more widely than intended: the old ones stop working straight away and you will need to print the new QR.</p>' : ""}`;
+      ${data.canReset ? '<p class="muted small">Reset if the link or QR has been shared more widely than intended: the old ones stop working straight away (including the QR code already placed on drawings) and you will need to print the new QR.</p>' : ""}`;
     wrap.querySelector("[data-close]").addEventListener("click", close);
     wrap.querySelector("[data-copy]").addEventListener("click", async (e) => {
       await navigator.clipboard.writeText(url).catch(() => {});

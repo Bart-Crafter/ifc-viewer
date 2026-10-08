@@ -836,9 +836,11 @@ function describeRevision(groups, entry, access) {
   const top = Math.max(parsed.rank, ...items.map((i) => i.rank));
   const newest = items.filter((i) => i.rank === top);
   const reachable = newest.find((i) => access.folders.has(i.folder));
+  const before = items.filter((i) => i.rank < parsed.rank).sort((a, b) => b.rank - a.rank)[0];
   return {
     rev: parsed.rev,
     series,
+    previousRev: before?.rev ?? null, // the revision this one replaced, if an older one is still on the project
     superseded: parsed.rank < top,
     latestRev: newest[0]?.rev ?? parsed.rev,
     latestId: reachable?.id ?? null, // null: the newest one is in a folder this person can't open
@@ -1064,10 +1066,10 @@ async function ifcStatus(project, ref, entry) {
   return { status: "processing", error: null };
 }
 
-// Whether this PDF has its QR code, and whether this person may add one (a designer, on a PDF whose name has a revision).
+// Whether this PDF has its QR code, and whether this person may add one (a designer).
 async function qrState(req, entry) {
   const row = await db.one("SELECT version_key, stamped_at FROM qr_stamps WHERE project_id = $1 AND item_id = $2", [req.project.id, entry.id]);
-  return { qr: hasQr(row, entry), canStampQr: can(req.role, "designer") && !!parseRevision(entry.name) };
+  return { qr: hasQr(row, entry), canStampQr: can(req.role, "designer") };
 }
 api.get("/files/:fid", fileCtx, needRole("viewer"), needFolder, loadFile, async (req, res) => {
   const e = req.entry;
@@ -1090,40 +1092,10 @@ api.get("/files/:fid", fileCtx, needRole("viewer"), needFolder, loadFile, async 
   });
 });
 
-// A drawing's QR code points here: it finds the newest revision this person can open for the drawing named in the
-// code, and says whether the revision they scanned was the newest (so the viewer can warn them if it wasn't).
-api.get("/projects/:pid/resolve", projectCtx, needRole("viewer"), async (req, res) => {
-  const asked = String(req.query.series ?? "");
-  const scanned = String(req.query.rev ?? "").toUpperCase();
-  const groups = await revisionGroups(req.project);
-  const items = groups.get(asked) ?? [...groups].find(([series]) => shortSeriesId(series) === asked)?.[1];
-  if (!items?.length) return res.status(404).json({ error: "That drawing is no longer on this project." });
-  const top = Math.max(...items.map((i) => i.rank));
-  const newest = items.filter((i) => i.rank === top);
-  const reachable = newest.find((i) => req.access.folders.has(i.folder)) ?? items.filter((i) => req.access.folders.has(i.folder)).sort((a, b) => b.rank - a.rank)[0];
-  if (!reachable) return res.status(403).json({ error: "You don't have access to that drawing." });
-  res.json({
-    id: reachable.id,
-    type: typeOf(reachable.name),
-    name: reachable.name,
-    rev: reachable.rev,
-    scannedRev: scanned || null,
-    newestRev: newest[0].rev,
-    newestHidden: reachable.rank < top, // a newer one exists, but in a folder this person can't open
-  });
-});
-
-// QR code to print on a drawing. It carries the drawing's name and the revision it was printed from.
-// The drawing is named in the code by a short id (a hash of its series), which keeps the QR code small. The full
-// series name is still accepted too, so any code printed earlier keeps working.
-const shortSeriesId = (series) => crypto.createHash("sha1").update(series).digest("base64url").slice(0, 10);
-const documentLink = (req, project, folderKey, entry) => {
-  const parsed = parseRevision(entry.name);
-  const query = new URLSearchParams({ s: shortSeriesId(seriesOf(entry.name)), ...(parsed ? { r: parsed.rev } : {}), k: project.link_key });
-  return `${baseUrl(req)}/d/${project.id}?${query}`;
-};
+// The QR code placed on a drawing is the project's own QR code (the same on every sheet): it opens the project view,
+// which always lists the current revisions. This returns it, with where the code last went on this drawing (so the next
+// revision of the same drawing starts from the same spot).
 api.get("/files/:fid/link", fileCtx, needRole("designer"), needFolder, loadFile, async (req, res) => {
-  // The QR code was last placed here on an earlier revision of this drawing: start from the same spot.
   const last = await db.one("SELECT placement FROM qr_stamps WHERE project_id = $1 AND series = $2 AND placement IS NOT NULL ORDER BY stamped_at DESC LIMIT 1", [
     req.project.id,
     seriesOf(req.entry.name),
@@ -1132,7 +1104,7 @@ api.get("/files/:fid/link", fileCtx, needRole("designer"), needFolder, loadFile,
   try {
     placement = last ? JSON.parse(last.placement) : null;
   } catch {}
-  res.json({ url: documentLink(req, req.project, req.folderKey, req.entry), rev: parseRevision(req.entry.name)?.rev ?? null, placement });
+  res.json({ url: linkFor(req, req.project), placement });
 });
 
 // Viewer-role users (and link holders) may only read PDFs through the page's own scripts, not by opening the address directly.
@@ -1215,13 +1187,11 @@ api.put("/files/:fid", fileCtx, needRole("designer"), needFolder, needRights, lo
   }
 });
 
-// Put the drawing's QR code on a PDF at the spot the designer chose in the viewer (body: page, x, y, w as fractions of
+// Put the project's QR code on a PDF at the spot the designer chose in the viewer (body: page, x, y, w as fractions of
 // the page as displayed, allPages). Works on any PDF on the site, including ones staff dropped into OneDrive.
 api.post("/files/:fid/stamp-qr", fileCtx, needRole("designer"), needFolder, loadFile, async (req, res) => {
   const e = req.entry;
   if (typeOf(e.name) !== "pdf") return res.status(400).json({ error: "QR codes can only be added to PDFs." });
-  const rev = parseRevision(e.name);
-  if (!rev) return res.status(400).json({ error: "The file name needs a revision code (like C02) before a QR code can be added." });
   let placement;
   try {
     placement = cleanPlacement(req.body);
@@ -1236,7 +1206,7 @@ api.post("/files/:fid/stamp-qr", fileCtx, needRole("designer"), needFolder, load
   const original = await readAll(stream);
   let stamped;
   try {
-    stamped = await stampQr(original, documentLink(req, req.project, req.folderKey, e), placement);
+    stamped = await stampQr(original, linkFor(req, req.project), placement);
   } catch (err) {
     return res.status(422).json({ error: `The QR code couldn't be added: ${err.message}` });
   }
@@ -1244,7 +1214,7 @@ api.post("/files/:fid/stamp-qr", fileCtx, needRole("designer"), needFolder, load
   try {
     await fsp.writeFile(out, stamped);
     const updated = await storage.replace(req.ref, e.id, out); // SharePoint keeps the previous version in its history
-    if (updated) await recordStamp(req.project, updated, rev.rev, { page: placement.page, x: placement.x, y: placement.y, w: placement.w });
+    if (updated) await recordStamp(req.project, updated, parseRevision(e.name)?.rev ?? null, { page: placement.page, x: placement.x, y: placement.y, w: placement.w });
   } finally {
     fsp.rm(out, { force: true }).catch(() => {});
   }
@@ -1516,13 +1486,18 @@ async function convertJob({ project, ref, entry }) {
 }
 
 // ---------- pages (dev: Vite middleware, prod: static build) ----------
+
+// QR codes printed per drawing earlier (/d/<project>?...&k=<key>) now simply open the project.
+app.get("/d/:pid", (req, res) => {
+  const key = typeof req.query.k === "string" ? `?k=${encodeURIComponent(req.query.k)}` : "";
+  res.redirect(`/p/${encodeURIComponent(req.params.pid)}${key}`);
+});
 const webRoot = path.join(rootDir, "web");
 
 function pageFor(url) {
   const pathname = url.split("?")[0];
   if (pathname.startsWith("/p/")) return "project.html";
   if (pathname.startsWith("/s/")) return "share.html";
-  if (pathname.startsWith("/d/")) return "doc.html";
   if (pathname.startsWith("/view/ifc/")) return "model.html";
   if (pathname.startsWith("/view/pdf/")) return "pdf.html";
   if (pathname === "/admin") return "admin.html";

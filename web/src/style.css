@@ -660,26 +660,7 @@ textarea {
 .warn-list { color: var(--warn, #e0a030); margin: 0 0 1rem; padding-left: 1.2rem; font-size: 0.88rem; }
 .share-message { margin: 0; white-space: pre-wrap; }
 
-/* ---------- 3D view: press-and-hold selection ---------- */
-.viewer-hint {
-  position: fixed;
-  left: 50%;
-  bottom: 1rem;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  max-width: min(92vw, 640px);
-  padding: 0.55rem 0.5rem 0.55rem 0.9rem;
-  background: rgba(1, 36, 56, 0.92);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 0.85rem;
-  color: var(--text);
-  z-index: 20;
-}
-.viewer-hint strong { color: #ffa500; }
-.viewer-hint button { background: none; border: 0; color: var(--text-dim); font-size: 1.2rem; line-height: 1; padding: 0.1rem 0.5rem; cursor: pointer; }
+/* ---------- 3D view ---------- */
 #viewer-container canvas { touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 
 /* ---------- phones and tablets ---------- */
@@ -690,7 +671,6 @@ textarea {
   .viewer-header button.secondary { padding: 0.4rem 0.7rem; font-size: 0.85rem; }
   .viewer-header select.shading-select { min-height: 46px; padding: 0.55rem 0.9rem; font-size: 0.95rem; }
   .property-panel { top: var(--viewer-header-h, 6rem); }
-  .viewer-hint { left: 0.6rem; right: 4.2rem; bottom: 0.6rem; transform: none; max-width: none; justify-content: space-between; border-radius: 14px; }
   .page-head { flex-direction: column; align-items: stretch; }
   .head-actions { flex-wrap: wrap; }
   .send-bar button { width: 100%; }
@@ -705,7 +685,6 @@ textarea {
   button.small, a.button.small { min-height: 40px; padding-left: 0.9rem; padding-right: 0.9rem; }
   .file-actions { gap: 0.5rem; }
   input[type="checkbox"], .pick, .access-table input[type="checkbox"] { width: 1.45rem; height: 1.45rem; }
-  .viewer-hint button { min-height: 36px; min-width: 36px; }
 }
 
 /* links that look like buttons line up with real buttons */
@@ -764,24 +743,6 @@ a.button, label.button { display: inline-flex; align-items: center; justify-cont
   .section-head-actions button { min-height: 44px; padding: 0 1rem; }
 }
 
-/* help button, bottom corner of the 3D view */
-.help-fab {
-  position: fixed;
-  right: 1rem;
-  bottom: 1rem;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border-radius: 50%;
-  font-size: 1.15rem;
-  font-weight: 600;
-  background: rgba(1, 36, 56, 0.92);
-  color: var(--text);
-  border: 1px solid var(--border);
-  z-index: 22;
-}
-@media (max-width: 760px) { .help-fab { right: 0.6rem; bottom: 0.6rem; } }
-
 /* section box: turn control */
 .section-rotate { margin-top: 0.4rem; padding-top: 0.9rem; border-top: 1px solid var(--border); }
 .section-rotate input[type="range"] { width: 100%; height: 40px; margin: 0.2rem 0 0.6rem; padding: 0; accent-color: #ffa500; background: none; border: 0; }
@@ -805,7 +766,6 @@ a.button, label.button { display: inline-flex; align-items: center; justify-cont
 }
 .rev-banner.hidden { display: none; }
 .rev-banner.old { background: #7a1f1f; color: #fff; border-bottom: 2px solid #ff6b6b; }
-.rev-banner.moved { background: #7a5a10; color: #fff; border-bottom: 2px solid #ffcf66; }
 .rev-banner.current { background: #14452f; color: #d7ffe9; padding: 0.4rem 1rem; font-size: 0.85rem; }
 .rev-banner .button, .rev-banner button { flex: none; }
 .rev-banner.old .button { background: #fff; color: #7a1f1f; }
@@ -927,3 +887,13 @@ a { color: inherit; }
 .viewer-header { background: var(--nav); border-bottom: 1px solid var(--border); }
 .badge.ok { color: var(--accent); border-color: #7a9a1a; }
 body.viewer-body { background: var(--viewer-bg); }
+
+/* PDF viewer: a soft whole-page picture behind the sharp window, so nothing ever flashes blank */
+.pdf-thumb { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; z-index: 0; pointer-events: none; }
+.pdf-window { z-index: 1; pointer-events: none; }
+
+/* project page: recently issued drawings */
+.recent-card { margin-bottom: 1rem; }
+.recent-card h2 { margin-bottom: 0.2rem; }
+.recent-row { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; flex-wrap: wrap; padding: 0.5rem 0; border-top: 1px solid var(--border); }
+.recent-row:first-of-type { margin-top: 0.6rem; }

@@ -18,7 +18,6 @@ export default defineConfig({
         model: path.join(webRoot, "model.html"),
         pdf: path.join(webRoot, "pdf.html"),
         share: path.join(webRoot, "share.html"),
-        doc: path.join(webRoot, "doc.html"),
       },
     },
   },

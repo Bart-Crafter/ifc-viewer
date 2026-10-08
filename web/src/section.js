@@ -201,12 +201,14 @@ export function createSectionBox({ world, box, button, raycaster, notify = () =>
   let tapStart = null;
   const stopAligning = () => {
     aligning = false;
+    document.body.classList.remove("section-aligning"); // lets the viewer's own click-to-select know
     alignButton.classList.remove("active");
     alignButton.textContent = "Line up with a wall…";
   };
   alignButton.addEventListener("click", () => {
     if (aligning) return stopAligning();
     aligning = true;
+    document.body.classList.add("section-aligning");
     alignButton.classList.add("active");
     alignButton.textContent = "Tap a wall on the model… (cancel)";
   });

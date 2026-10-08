@@ -74,7 +74,7 @@ async function init() {
   nameEl.textContent = info.name;
   revisionEl.textContent = info.modified ? `Updated ${new Date(info.modified).toLocaleDateString()}` : "";
   document.title = `${info.name} — Crafter Engineering`;
-  setupRevisionBanner(info, new URLSearchParams(location.search).get("scanned"));
+  setupRevisionBanner(info);
   document.getElementById("back-link").href = `/p/${info.project.id}`;
 
   if (info.status !== "ready") {
@@ -94,11 +94,11 @@ async function init() {
   world.renderer = new OBC.SimpleRenderer(components, container);
   world.renderer.showLogo = false; // using our own branding instead
   world.camera = new OBC.SimpleCamera(components);
-  // Mouse: left = orbit, middle = pan, wheel = zoom (right button does nothing).
+  // Mouse: left = orbit, middle or right = pan, wheel = zoom.
   const buttons = world.camera.controls.mouseButtons;
   buttons.left = CameraControls.ACTION.ROTATE;
   buttons.middle = CameraControls.ACTION.TRUCK;
-  buttons.right = CameraControls.ACTION.NONE;
+  buttons.right = CameraControls.ACTION.TRUCK;
 
   components.init();
   world.scene.setup();
@@ -146,7 +146,6 @@ async function init() {
   const raycasters = components.get(OBC.Raycasters);
   const raycaster = raycasters.get(world);
   setupPicking(world, raycaster);
-  setupHint();
   if (modelBox) {
     const sectionButton = document.getElementById("section-button");
     sectionButton.classList.remove("hidden");
@@ -232,15 +231,20 @@ async function setupShading(model, world) {
     });
   }
 
+  let applying = 0;
   async function apply(next) {
+    const turn = ++applying;
+    clayModel = next === "clay" ? model : null;
+    // Colours first (they come back from a worker, so take a moment) ...
+    await model.resetOpacity(undefined);
+    if (next === "clay") await model.setColor(undefined, CLAY_COLOR);
+    else await model.resetColor(undefined);
+    await fragments.core.update(true);
+    if (turn !== applying) return; // another style was picked meanwhile
+    // ... then lighting, shadows and outlines in the same instant, so nothing visibly lags behind the colours.
     mode = next;
     edgePass.setEnabled(EDGES_BY_STYLE[next] ?? false);
-    clayModel = next === "clay" ? model : null;
-    await model.resetOpacity(undefined);
-    await model.resetColor(undefined);
     setLighting(next === "shadows");
-    if (next === "clay") await model.setColor(undefined, CLAY_COLOR);
-    await fragments.core.update(true);
     if (mode === "shadows") markMeshes(); // meshes created by the update above
     if (selected) {
       await fragments.highlight(HIGHLIGHT_STYLE, { [selected.modelId]: [selected.localId] });
@@ -261,11 +265,10 @@ async function setupShading(model, world) {
 }
 
 
-// ---------- selecting an element: press and hold ----------
-// A plain click or drag never selects, so orbiting the model can't select things by accident. Holding still on an
-// element for HOLD_MS (a third of a second) selects it, on a mouse and on a touch screen alike.
-const HOLD_MS = 300;
-const HOLD_MOVE_TOLERANCE = 8; // px the pointer may drift before it counts as a drag
+// ---------- selecting an element ----------
+// A click selects, the same way the ruler places a point: a press that stays put and is released. A drag (orbiting,
+// panning) never selects, so moving the model around can't select things by accident.
+const CLICK_DRAG_TOLERANCE = 5; // px
 
 async function clearSelection() {
   const previous = selected;
@@ -279,13 +282,7 @@ async function clearSelection() {
 
 function setupPicking(world, raycaster) {
   const dom = world.renderer.three.domElement;
-  let hold = null;
-
-  function cancelHold() {
-    if (!hold) return;
-    clearTimeout(hold.timer);
-    hold = null;
-  }
+  let pressedAt = null;
 
   async function pickAt(clientX, clientY) {
     const rect = dom.getBoundingClientRect();
@@ -311,57 +308,19 @@ function setupPicking(world, raycaster) {
     await fragments.core.update(true);
 
     showProperties(result.localId);
-    hideHint(true); // they've worked it out
   }
 
   dom.addEventListener("pointerdown", (event) => {
-    cancelHold();
     // only a single primary press counts (a second finger means pinch/pan, not select)
-    if (rulerActive || !event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
-    const start = { x: event.clientX, y: event.clientY };
-    hold = {
-      start,
-      timer: setTimeout(() => {
-        const { x, y } = start;
-        cancelHold();
-        navigator.vibrate?.(25);
-        pickAt(x, y);
-      }, HOLD_MS),
-    };
+    const counts = event.isPrimary && (event.pointerType !== "mouse" || event.button === 0);
+    pressedAt = counts ? { x: event.clientX, y: event.clientY } : null;
   });
-  dom.addEventListener("pointermove", (event) => {
-    if (hold && Math.hypot(event.clientX - hold.start.x, event.clientY - hold.start.y) > HOLD_MOVE_TOLERANCE) cancelHold();
+  dom.addEventListener("click", (event) => {
+    if (rulerActive || document.body.classList.contains("section-aligning") || !pressedAt) return;
+    if (Math.hypot(event.clientX - pressedAt.x, event.clientY - pressedAt.y) > CLICK_DRAG_TOLERANCE) return; // it was a drag
+    pickAt(event.clientX, event.clientY);
   });
-  for (const type of ["pointerup", "pointercancel", "pointerleave", "wheel"]) dom.addEventListener(type, cancelHold, { passive: true });
-  dom.addEventListener("contextmenu", (event) => event.preventDefault()); // long-press must not open the phone's menu
-}
-
-// ---------- controls hint ----------
-const hintEl = document.getElementById("viewer-hint");
-const touchDevice = matchMedia("(pointer: coarse)").matches;
-const HINT_TEXT = touchDevice
-  ? "Drag to rotate · Pinch to zoom · Two fingers to pan · <strong>Press and hold</strong> an element to select it"
-  : "Drag to rotate · Scroll to zoom · Middle mouse to pan · <strong>Press and hold</strong> an element to select it";
-
-function showHint() {
-  hintEl.innerHTML = `<span>${HINT_TEXT}</span><button type="button" aria-label="Hide tip">&times;</button>`;
-  hintEl.classList.remove("hidden");
-  hintEl.querySelector("button").addEventListener("click", () => hideHint(true));
-}
-function hideHint(remember) {
-  hintEl.classList.add("hidden");
-  if (!remember) return;
-  try {
-    localStorage.setItem("viewer-hint-seen", "1");
-  } catch {}
-}
-function setupHint() {
-  document.getElementById("help-button").addEventListener("click", () => (hintEl.classList.contains("hidden") ? showHint() : hideHint(false)));
-  let seen = false;
-  try {
-    seen = localStorage.getItem("viewer-hint-seen") === "1";
-  } catch {}
-  if (!seen) showHint();
+  dom.addEventListener("contextmenu", (event) => event.preventDefault()); // right button pans; no browser menu
 }
 
 function setupRuler(world, raycaster) {
