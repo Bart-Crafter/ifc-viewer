@@ -245,9 +245,6 @@ async function setupShading(model, world) {
       await fragments.highlight(HIGHLIGHT_STYLE, { [selected.modelId]: [selected.localId] });
       await syncClaySelection(null, selected);
     }
-    try {
-      localStorage.setItem("viewer-shading", next);
-    } catch {}
   }
 
   // Outlines come with the style: on for Shaded and Clay, off for Realistic.
@@ -256,11 +253,8 @@ async function setupShading(model, world) {
 
   shadingSelect.classList.remove("hidden");
   shadingSelect.addEventListener("change", () => apply(shadingSelect.value));
-  let saved = "shaded"; // default style; a choice made earlier on this device wins
-  try {
-    saved = localStorage.getItem("viewer-shading") || "shaded";
-  } catch {}
-  if (![...shadingSelect.options].some((o) => o.value === saved)) saved = "shaded";
+  // Every time a model is opened it starts in Shaded; the choice isn't remembered between visits.
+  const saved = "shaded";
   shadingSelect.value = saved;
   apply(saved); // every style uses the contrast lighting, so this always runs
 }
@@ -394,8 +388,15 @@ function setupRuler(world, raycaster) {
     await fragments.core.update(true);
   });
 
+  // A drag (orbiting, panning) must not place a ruler point: only a press that stays put and is released counts.
+  let pressedAt = null;
+  dom.addEventListener("pointerdown", (event) => {
+    pressedAt = { x: event.clientX, y: event.clientY };
+  });
+
   dom.addEventListener("click", async (event) => {
     if (!rulerActive) return;
+    if (pressedAt && Math.hypot(event.clientX - pressedAt.x, event.clientY - pressedAt.y) > 5) return; // it was a drag
     const point = await pickPoint(event);
     if (!point) return;
 

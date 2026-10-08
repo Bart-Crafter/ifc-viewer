@@ -40,6 +40,10 @@ Name documents with their revision code at the end: `100478-CFT-DD-XX-DR-C-101 C
 - **Copy link** beside a PDF or IFC copies a link that always opens the newest revision of that drawing (the same link the QR code holds).
 - Files without a revision code behave as before.
 
+### Viewer controls
+- **PDF:** scroll wheel zooms in and out (around the pointer), the middle mouse button drags the drawing around; the buttons in the header still work, and on a touch screen you scroll as usual.
+- **3D model:** left-drag orbits, wheel zooms, middle-drag pans; a ruler point is only placed by a click (never by a drag); press and hold on an element to select it. It always opens in the Shaded style. The **Section** button docks a cutting panel down the right side (a sheet at the bottom on a phone).
+
 ### Copyright and sharing rights
 Uploading asks the person to confirm Crafter Engineering has the right to share the file, and the server records it. Pages carry a confidentiality/copyright notice. See [docs/COPYRIGHT-AND-LIABILITY.md](docs/COPYRIGHT-AND-LIABILITY.md) for the risks of hosting files that reference other companies' drawings or licensed data, and the recommended policy.
 

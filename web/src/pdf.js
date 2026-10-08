@@ -122,21 +122,83 @@ async function renderPage(n) {
   }
 }
 
-function setScale(next) {
+function setScale(next, anchor = null) {
+  const before = scale;
   scale = Math.min(4, Math.max(0.25, next));
   for (const box of pageBoxes) {
     box.replaceChildren();
     delete box.dataset.renderedScale;
   }
   // Resize placeholders using page 1's proportions; real size is applied when each page renders.
-  pdf.getPage(1).then((p) => {
+  return pdf.getPage(1).then((p) => {
     const vp = p.getViewport({ scale });
     for (const box of pageBoxes) {
       box.style.width = `${vp.width}px`;
       box.style.height = `${vp.height}px`;
     }
+    if (anchor) {
+      // keep the point under the pointer where it was
+      scroller.scrollLeft = (anchor.fx / before) * scale - anchor.cx;
+      scroller.scrollTop = (anchor.fy / before) * scale - anchor.cy;
+    }
     observer.disconnect();
     for (const box of pageBoxes) observer.observe(box);
+    updatePageInfo();
+  });
+}
+
+// ----- mouse: wheel zooms (around the pointer), middle button drags the drawing around -----
+let pendingScale = null;
+let zoomAnchor = null;
+let zoomTimer = null;
+scroller.addEventListener(
+  "wheel",
+  (event) => {
+    if (!pdf) return;
+    event.preventDefault();
+    const rect = scroller.getBoundingClientRect();
+    const cx = event.clientX - rect.left;
+    const cy = event.clientY - rect.top;
+    if (!zoomAnchor) zoomAnchor = { cx, cy, fx: scroller.scrollLeft + cx, fy: scroller.scrollTop + cy }; // content point under the pointer, at the current scale
+    const step = Math.exp(-event.deltaY * (event.deltaMode === 1 ? 0.05 : 0.0016));
+    pendingScale = Math.min(4, Math.max(0.25, (pendingScale ?? scale) * step));
+    // instant (soft-focus) feedback while the wheel is turning; the pages are redrawn sharp when it pauses
+    pagesEl.style.transformOrigin = `${zoomAnchor.fx}px ${zoomAnchor.fy}px`;
+    pagesEl.style.transform = `scale(${pendingScale / scale})`;
+    clearTimeout(zoomTimer);
+    zoomTimer = setTimeout(async () => {
+      const target = pendingScale;
+      const anchor = zoomAnchor;
+      pendingScale = null;
+      zoomAnchor = null;
+      pagesEl.style.transform = "";
+      pagesEl.style.transformOrigin = "";
+      await setScale(target, anchor);
+    }, 110);
+  },
+  { passive: false }
+);
+
+let pan = null;
+scroller.addEventListener("mousedown", (event) => {
+  if (event.button === 1) event.preventDefault(); // no browser auto-scroll circle
+});
+scroller.addEventListener("pointerdown", (event) => {
+  if (event.button !== 1) return;
+  event.preventDefault();
+  pan = { x: event.clientX, y: event.clientY, left: scroller.scrollLeft, top: scroller.scrollTop };
+  scroller.setPointerCapture(event.pointerId);
+  scroller.classList.add("panning");
+});
+scroller.addEventListener("pointermove", (event) => {
+  if (!pan) return;
+  scroller.scrollLeft = pan.left - (event.clientX - pan.x);
+  scroller.scrollTop = pan.top - (event.clientY - pan.y);
+});
+for (const type of ["pointerup", "pointercancel"]) {
+  scroller.addEventListener(type, () => {
+    pan = null;
+    scroller.classList.remove("panning");
   });
 }
 

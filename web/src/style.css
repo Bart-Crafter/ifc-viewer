@@ -870,3 +870,32 @@ a.button, label.button { display: inline-flex; align-items: center; justify-cont
 .qr-bar-controls #qr-cancel { margin-left: auto; }
 body.placing-qr #pdf-scroll { padding-bottom: 9rem; }
 @media (max-width: 760px) { .qr-handle { width: 32px; height: 32px; right: -14px; bottom: -14px; } .qr-bar { bottom: 0.5rem; } .qr-bar-controls #qr-cancel { margin-left: 0; } }
+
+/* ---------- section box: docked down the right side, no scroll bar ---------- */
+.section-panel {
+  top: var(--viewer-header-h, 3.4rem);
+  right: 0;
+  left: auto;
+  bottom: 0;
+  width: 310px;
+  max-height: none;
+  border-radius: 0;
+  border-width: 0 0 0 1px;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.3);
+  overflow-y: auto;
+  scrollbar-width: none; /* the contents are compact enough to fit; no scroll bar */
+}
+.section-panel::-webkit-scrollbar { display: none; }
+.section-panel .dual { margin-bottom: 0.7rem; }
+.section-panel .dual-track { height: 40px; }
+.section-rotate-actions { display: flex; gap: 0.5rem; align-items: stretch; }
+.section-rotate-actions [data-align] { flex: 1 1 auto; }
+.section-rotate-actions .icon-button { flex: none; width: 44px; padding: 0; font-size: 1.25rem; line-height: 1; }
+body.section-open .property-panel { right: 310px; }
+@media (max-height: 760px) { .section-help { display: none; } }
+@media (max-width: 760px) {
+  .section-panel { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 52vh; border-width: 1px 0 0; border-radius: 16px 16px 0 0; box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.4); }
+  body.section-open .property-panel { right: 0; }
+}
+/* PDF viewer: middle-button pan */
+.pdf-scroll.panning, .pdf-scroll.panning * { cursor: grabbing !important; user-select: none; }

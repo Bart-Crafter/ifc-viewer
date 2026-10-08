@@ -162,7 +162,7 @@ export function createSectionBox({ world, box, button, raycaster, notify = () =>
       <input type="range" min="-180" max="180" step="1" value="0" aria-label="Turn the section box" data-rotate />
       <div class="section-rotate-actions">
         <button type="button" class="secondary" data-align>Line up with a wall…</button>
-        <button type="button" class="secondary" data-square>Square (0°)</button>
+        <button type="button" class="secondary icon-button" data-square title="Reset the turn to 0°" aria-label="Reset the turn to 0 degrees">&#x21BA;</button>
       </div>
     </div>`;
   const sliders = AXES.map((axis) => {
@@ -233,13 +233,15 @@ export function createSectionBox({ world, box, button, raycaster, notify = () =>
     stopAligning();
   });
 
-  // On a phone the panel is a sheet over the bottom of the screen. Shift the picture up by half its height so the
-  // model stays centred in the part you can still see, and put it back when the sheet closes.
+  // The panel covers part of the screen: a sheet over the bottom on a phone, a dock down the right side otherwise.
+  // Shift the picture by half its size so the model stays centred in the part you can still see.
   const phone = matchMedia("(max-width: 760px)");
   function liftView() {
     const camera = world.camera.three;
-    if (panelOpen && phone.matches && canvas.clientHeight) {
-      camera.setViewOffset(canvas.clientWidth, canvas.clientHeight, 0, panel.offsetHeight / 2, canvas.clientWidth, canvas.clientHeight);
+    if (panelOpen && canvas.clientHeight) {
+      const shiftX = phone.matches ? 0 : panel.offsetWidth / 2;
+      const shiftY = phone.matches ? panel.offsetHeight / 2 : 0;
+      camera.setViewOffset(canvas.clientWidth, canvas.clientHeight, shiftX, shiftY, canvas.clientWidth, canvas.clientHeight);
     } else {
       camera.clearViewOffset();
     }
@@ -250,6 +252,7 @@ export function createSectionBox({ world, box, button, raycaster, notify = () =>
   const showPanel = (on) => {
     panelOpen = on;
     panel.classList.toggle("hidden", !on);
+    document.body.classList.toggle("section-open", on); // lets the properties panel make room
     if (!on) stopAligning();
     apply();
     liftView();
