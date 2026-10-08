@@ -35,6 +35,7 @@ Name documents with their revision code at the end: `100478-CFT-DD-XX-DR-C-101 C
 - Opening a superseded drawing in the PDF or 3D viewer shows a red **Out of date** banner with a button to open the latest. Uploading an older revision than the latest warns the uploader.
 - **QR code on a drawing:** designers click **QR** on a PDF or IFC to get a code to print on that drawing. It carries the drawing and the revision it was printed from. Whoever scans it is taken to the *newest* revision and told "that QR code was for revision C01, which has been replaced". If the newest revision is in a folder they can't open, they are told a newer one exists and to ask for it. Scanning needs no sign-in if the folder is public.
 - **Replace guard:** if a designer uses *Replace* on `… C01.pdf` but picks a file named `… C03.pdf` (or a different drawing's name), the site stops them before uploading and offers **Upload as a new file**, which keeps C01. Only project admins get *Replace anyway* (recorded in the activity log). Renaming a file to a different revision code is stopped the same way. The server enforces this too.
+- QR codes are generated as small as they can reasonably be: the lowest error-correction level and a short link (the drawing is named by a short id). That means fewer squares, so they print small and still scan; the trade-off is less tolerance for a torn or smudged print. Codes printed earlier keep working.
 - Files without a revision code behave as before.
 
 ### Copyright and sharing rights

@@ -6,7 +6,7 @@ const app = document.getElementById("app");
 const pid = location.pathname.split("/")[2];
 const params = new URLSearchParams(location.search);
 const series = params.get("s") || "";
-const scanned = params.get("rev") || "";
+const scanned = params.get("r") || params.get("rev") || ""; // "rev" is what older printed codes use
 const key = params.get("k");
 
 function page(inner) {

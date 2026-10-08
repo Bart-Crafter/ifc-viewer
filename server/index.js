@@ -582,6 +582,9 @@ api.delete("/projects/:pid", projectCtx, requireSiteAdmin, async (req, res) => {
 });
 
 // ---------- the project link / QR code ----------
+// Smallest QR that still scans: lowest error correction (fewest squares, so it can be printed small) and a short web
+// address. Fine for clean printed drawings; a damaged or dirty print is less forgiving than with the usual higher setting.
+const QR_OPTIONS = { width: 512, margin: 2, errorCorrectionLevel: "L" };
 const baseUrl = (req) => publicUrl || `${req.protocol}://${req.get("host")}`;
 const linkFor = (req, project) => `${baseUrl(req)}/p/${project.id}?k=${project.link_key}`;
 const linkFailures = createFailureLimiter({ max: 30, windowMs: 15 * 60 * 1000 });
@@ -619,7 +622,7 @@ api.post("/projects/:pid/link/reset", projectCtx, needRole("admin"), async (req,
 
 api.get("/projects/:pid/qr.png", projectCtx, needRole("designer"), (req, res) => {
   res.type("png");
-  QRCode.toFileStream(res, linkFor(req, req.project), { width: 512, margin: 2 });
+  QRCode.toFileStream(res, linkFor(req, req.project), QR_OPTIONS);
 });
 
 // ---------- who has access (stored in the project's access register workbook) ----------
@@ -1052,9 +1055,10 @@ api.get("/files/:fid", fileCtx, needRole("viewer"), needFolder, loadFile, async 
 // A drawing's QR code points here: it finds the newest revision this person can open for the drawing named in the
 // code, and says whether the revision they scanned was the newest (so the viewer can warn them if it wasn't).
 api.get("/projects/:pid/resolve", projectCtx, needRole("viewer"), async (req, res) => {
-  const series = String(req.query.series ?? "");
+  const asked = String(req.query.series ?? "");
   const scanned = String(req.query.rev ?? "").toUpperCase();
-  const items = (await revisionGroups(req.project)).get(series);
+  const groups = await revisionGroups(req.project);
+  const items = groups.get(asked) ?? [...groups].find(([series]) => shortSeriesId(series) === asked)?.[1];
   if (!items?.length) return res.status(404).json({ error: "That drawing is no longer on this project." });
   const top = Math.max(...items.map((i) => i.rank));
   const newest = items.filter((i) => i.rank === top);
@@ -1072,9 +1076,12 @@ api.get("/projects/:pid/resolve", projectCtx, needRole("viewer"), async (req, re
 });
 
 // QR code to print on a drawing. It carries the drawing's name and the revision it was printed from.
+// The drawing is named in the code by a short id (a hash of its series), which keeps the QR code small. The full
+// series name is still accepted too, so any code printed earlier keeps working.
+const shortSeriesId = (series) => crypto.createHash("sha1").update(series).digest("base64url").slice(0, 10);
 const documentLink = (req, project, folderKey, entry) => {
   const parsed = parseRevision(entry.name);
-  const query = new URLSearchParams({ s: seriesOf(entry.name), ...(parsed ? { rev: parsed.rev } : {}), k: project.link_key });
+  const query = new URLSearchParams({ s: shortSeriesId(seriesOf(entry.name)), ...(parsed ? { r: parsed.rev } : {}), k: project.link_key });
   return `${baseUrl(req)}/d/${project.id}?${query}`;
 };
 api.get("/files/:fid/link", fileCtx, needRole("designer"), needFolder, loadFile, (req, res) => {
@@ -1082,7 +1089,7 @@ api.get("/files/:fid/link", fileCtx, needRole("designer"), needFolder, loadFile,
 });
 api.get("/files/:fid/qr.png", fileCtx, needRole("designer"), needFolder, loadFile, (req, res) => {
   res.type("png");
-  QRCode.toFileStream(res, documentLink(req, req.project, req.folderKey, req.entry), { width: 512, margin: 2 });
+  QRCode.toFileStream(res, documentLink(req, req.project, req.folderKey, req.entry), QR_OPTIONS);
 });
 
 // Viewer-role users (and link holders) may only read PDFs through the page's own scripts, not by opening the address directly.
