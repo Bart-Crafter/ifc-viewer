@@ -40,12 +40,8 @@ async function start() {
   document.getElementById("file-name").textContent = info.name;
   document.getElementById("back-link").href = `/p/${info.project.id}`;
 
-  if (info.canDownload) {
-    const button = document.getElementById("download-button");
-    button.classList.remove("hidden");
-    button.addEventListener("click", () => (location.href = `/api/files/${fileId}/download`));
-  } else {
-    // View-only access: no download button, no print, no right-click save.
+  if (!info.canDownload) {
+    // View-only access: no print, no right-click save.
     document.body.classList.add("no-print");
     pagesEl.addEventListener("contextmenu", (e) => e.preventDefault());
     window.addEventListener("keydown", (e) => {

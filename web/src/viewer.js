@@ -2,7 +2,7 @@ import * as THREE from "three";
 import * as OBC from "@thatopen/components";
 import CameraControls from "camera-controls";
 import fragmentsWorkerUrl from "@thatopen/fragments/worker?url";
-import { api } from "./common.js";
+import { api, toast } from "./common.js";
 import { createEdgePass } from "./edges.js";
 import { createSectionBox } from "./section.js";
 
@@ -19,7 +19,6 @@ const panelContent = document.getElementById("property-content");
 document.getElementById("close-panel").addEventListener("click", () => clearSelection());
 
 const rulerButton = document.getElementById("measure-button");
-const clearRulerButton = document.getElementById("clear-measure-button");
 const shadingSelect = document.getElementById("shading-select");
 const CLAY_COLOR = new THREE.Color(0xd9d9d9);
 let clayModel = null; // the model, while the Clay shading style is active
@@ -56,6 +55,8 @@ function trackHeaderHeight() {
   new ResizeObserver(set).observe(header);
 }
 
+let modelBox = null;
+
 async function init() {
   trackHeaderHeight();
   let info;
@@ -74,7 +75,6 @@ async function init() {
   revisionEl.textContent = info.modified ? `Updated ${new Date(info.modified).toLocaleDateString()}` : "";
   document.title = `${info.name} — Crafter Engineering`;
   document.getElementById("back-link").href = `/p/${info.project.id}`;
-  setupDownload(info);
 
   if (info.status !== "ready") {
     return showProblem(
@@ -136,9 +136,7 @@ async function init() {
       const reset = document.getElementById("reset-view-button");
       reset.classList.remove("hidden");
       reset.addEventListener("click", () => world.camera.controls.fitToBox(box, true));
-      const sectionButton = document.getElementById("section-button");
-      sectionButton.classList.remove("hidden");
-      createSectionBox({ world, box, button: sectionButton });
+      modelBox = box;
     }
   }
 
@@ -147,6 +145,11 @@ async function init() {
   const raycaster = raycasters.get(world);
   setupPicking(world, raycaster);
   setupHint();
+  if (modelBox) {
+    const sectionButton = document.getElementById("section-button");
+    sectionButton.classList.remove("hidden");
+    createSectionBox({ world, box: modelBox, button: sectionButton, raycaster, notify: (message) => toast(message) });
+  }
   setupRuler(world, raycaster);
   setupShading(model, world);
 }
@@ -261,15 +264,6 @@ async function setupShading(model, world) {
   apply(saved); // every style uses the contrast lighting, so this always runs
 }
 
-function setupDownload(info) {
-  // Viewer-level access gets no download button (the server also refuses the request).
-  if (!info.canDownload) return;
-  const button = document.getElementById("download-button");
-  button.classList.remove("hidden");
-  button.addEventListener("click", () => {
-    location.href = `/api/files/${encodeURIComponent(id)}/download`;
-  });
-}
 
 // ---------- selecting an element: press and hold ----------
 // A plain click or drag never selects, so orbiting the model can't select things by accident. Holding still on an
@@ -429,7 +423,6 @@ function setupRuler(world, raycaster) {
   });
 
   rulerButton.classList.remove("hidden");
-  clearRulerButton.classList.remove("hidden");
 
   rulerButton.addEventListener("click", async () => {
     rulerActive = !rulerActive;
@@ -437,7 +430,9 @@ function setupRuler(world, raycaster) {
     rulerButton.classList.toggle("active", rulerActive);
 
     if (!rulerActive) {
+      // Stopping the ruler also clears every dimension.
       cancelRulerPlacement();
+      while (rulerMeasurements.length > 0) deleteMeasurement(rulerMeasurements[0]);
     } else if (selected) {
       const previous = selected;
       await fragments.resetHighlight({ [selected.modelId]: [selected.localId] });
@@ -448,9 +443,6 @@ function setupRuler(world, raycaster) {
     }
   });
 
-  clearRulerButton.addEventListener("click", () => {
-    while (rulerMeasurements.length > 0) deleteMeasurement(rulerMeasurements[0]);
-  });
 }
 
 function cancelRulerPlacement() {

@@ -2,11 +2,12 @@ import * as THREE from "three";
 
 // Section box: slice the model with six clipping planes (one pair per axis) so you can look inside it.
 // Controlled with two-handle sliders in a panel (a bottom sheet on phones) because dragging planes in 3D fights with
-// orbiting on a touch screen; the orange box in the view shows where the cut is.
+// orbiting on a touch screen. The orange box in the view shows where the cut is. The box can be turned about the
+// vertical axis, either with the Turn slider or by tapping a wall (it lines up with that face).
 const AXES = [
-  { index: 1, label: "Height", low: "bottom", high: "top" },
-  { index: 0, label: "Left ↔ Right", low: "left", high: "right" },
-  { index: 2, label: "Front ↔ Back", low: "front", high: "back" },
+  { index: 1, label: "Height" },
+  { index: 0, label: "Along the box (left ↔ right)" },
+  { index: 2, label: "Across the box (front ↔ back)" },
 ];
 const MIN_GAP = 0.02; // the two handles of an axis never fully meet
 
@@ -15,7 +16,7 @@ function dualSlider({ label, onChange }) {
   row.className = "dual";
   row.innerHTML = `
     <div class="dual-label">${label}</div>
-    <div class="dual-track" touch-action="none">
+    <div class="dual-track">
       <div class="dual-fill"></div>
       <div class="dual-thumb" data-which="lo" role="slider" tabindex="0" aria-label="${label} start"></div>
       <div class="dual-thumb" data-which="hi" role="slider" tabindex="0" aria-label="${label} end"></div>
@@ -76,19 +77,44 @@ function dualSlider({ label, onChange }) {
   };
 }
 
-export function createSectionBox({ world, box, button }) {
+export function createSectionBox({ world, box, button, raycaster, notify = () => {} }) {
   const renderer = world.renderer.three;
   const scene = world.scene.three;
   const diagonal = box.getSize(new THREE.Vector3()).length();
-  const bounds = box.clone().expandByScalar(diagonal * 0.02);
-  const size = bounds.getSize(new THREE.Vector3());
+  const pad = diagonal * 0.02;
+  const center = box.getCenter(new THREE.Vector3());
+  const corners = [];
+  for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) corners.push(new THREE.Vector3(x, y, z));
 
-  const range = { lo: [0, 0, 0], hi: [1, 1, 1] }; // fraction of the model's extent, per axis
+  // The box is turned about the vertical axis through the model's centre. `placement` takes the box's own
+  // frame to world space; `bounds` is the model's extent measured in the box's frame.
+  let angle = 0; // radians
+  const placement = new THREE.Matrix4();
+  const bounds = new THREE.Box3();
+  const size = new THREE.Vector3();
+
+  function place() {
+    placement
+      .makeTranslation(center.x, center.y, center.z)
+      .multiply(new THREE.Matrix4().makeRotationY(angle))
+      .multiply(new THREE.Matrix4().makeTranslation(-center.x, -center.y, -center.z));
+    const inverse = placement.clone().invert();
+    bounds.makeEmpty();
+    for (const c of corners) bounds.expandByPoint(c.clone().applyMatrix4(inverse));
+    bounds.expandByScalar(pad);
+    bounds.getSize(size);
+  }
+  place();
+
+  const range = { lo: [0, 0, 0], hi: [1, 1, 1] }; // fraction of the model's extent in the box's frame, per axis
+  const frame = new THREE.Group(); // carries the outline in the box's turned frame
+  frame.matrixAutoUpdate = false;
   const outline = new THREE.Box3Helper(new THREE.Box3(), 0xffa500);
   outline.material.depthTest = false; // visible through the model
   outline.renderOrder = 999;
-  outline.visible = false;
-  scene.add(outline);
+  frame.add(outline);
+  frame.visible = false;
+  scene.add(frame);
 
   let panelOpen = false;
   const isCut = () => range.lo.some((v) => v > 0.001) || range.hi.some((v) => v < 0.999);
@@ -99,14 +125,17 @@ export function createSectionBox({ world, box, button }) {
     const planes = [];
     for (let i = 0; i < 3; i++) {
       const unit = new THREE.Vector3().setComponent(i, 1);
-      if (range.lo[i] > 0.001) planes.push(new THREE.Plane(unit.clone(), -low[i])); // keeps everything above the low cut
-      if (range.hi[i] < 0.999) planes.push(new THREE.Plane(unit.clone().negate(), high[i])); // keeps everything below the high cut
+      // planes are made in the box's own frame, then moved into place
+      if (range.lo[i] > 0.001) planes.push(new THREE.Plane(unit.clone(), -low[i]).applyMatrix4(placement));
+      if (range.hi[i] < 0.999) planes.push(new THREE.Plane(unit.clone().negate(), high[i]).applyMatrix4(placement));
     }
     renderer.clippingPlanes = planes;
     // a hair larger than the cut, so the outline isn't itself clipped away
     const grow = diagonal * 0.0015;
     outline.box.set(new THREE.Vector3(...low).addScalar(-grow), new THREE.Vector3(...high).addScalar(grow));
-    outline.visible = panelOpen || isCut();
+    frame.matrix.copy(placement);
+    frame.matrixWorldNeedsUpdate = true;
+    frame.visible = panelOpen || isCut();
     button.classList.toggle("active", panelOpen || isCut());
     world.renderer.needsUpdate = true;
   }
@@ -124,7 +153,15 @@ export function createSectionBox({ world, box, button }) {
       </div>
     </div>
     <p class="section-help">Drag the handles to cut away part of the model. <em>Done</em> closes this panel and keeps the cut; <em>Reset</em> shows everything again.</p>
-    <div class="section-sliders"></div>`;
+    <div class="section-sliders"></div>
+    <div class="section-rotate">
+      <div class="dual-label">Turn the box: <strong data-angle>0°</strong></div>
+      <input type="range" min="-180" max="180" step="1" value="0" aria-label="Turn the section box" data-rotate />
+      <div class="section-rotate-actions">
+        <button type="button" class="secondary" data-align>Line up with a wall…</button>
+        <button type="button" class="secondary" data-square>Square (0°)</button>
+      </div>
+    </div>`;
   const sliders = AXES.map((axis) => {
     const slider = dualSlider({
       label: axis.label,
@@ -139,14 +176,67 @@ export function createSectionBox({ world, box, button }) {
   });
   document.body.append(panel);
 
+  const rotateInput = panel.querySelector("[data-rotate]");
+  const angleLabel = panel.querySelector("[data-angle]");
+  const alignButton = panel.querySelector("[data-align]");
+
+  function setAngleDegrees(degrees) {
+    let d = ((((degrees + 180) % 360) + 360) % 360) - 180; // keep within -180..180
+    d = Math.round(d * 10) / 10;
+    angle = THREE.MathUtils.degToRad(d);
+    rotateInput.value = String(Math.round(d));
+    angleLabel.textContent = `${d}°`;
+    place();
+    apply();
+  }
+  rotateInput.addEventListener("input", () => setAngleDegrees(Number(rotateInput.value)));
+  panel.querySelector("[data-square]").addEventListener("click", () => setAngleDegrees(0));
+
+  // "Line up with a wall": the next tap on the model turns the box to face that wall.
+  const canvas = renderer.domElement;
+  let aligning = false;
+  let tapStart = null;
+  const stopAligning = () => {
+    aligning = false;
+    alignButton.classList.remove("active");
+    alignButton.textContent = "Line up with a wall…";
+  };
+  alignButton.addEventListener("click", () => {
+    if (aligning) return stopAligning();
+    aligning = true;
+    alignButton.classList.add("active");
+    alignButton.textContent = "Tap a wall on the model… (cancel)";
+  });
+  canvas.addEventListener("pointerdown", (event) => {
+    tapStart = aligning && event.isPrimary ? { x: event.clientX, y: event.clientY, t: performance.now() } : null;
+  });
+  canvas.addEventListener("pointerup", async (event) => {
+    if (!aligning || !tapStart) return;
+    const quick = performance.now() - tapStart.t < 280 && Math.hypot(event.clientX - tapStart.x, event.clientY - tapStart.y) < 8;
+    tapStart = null;
+    if (!quick) return; // that was an orbit/drag, not a tap
+    const rect = canvas.getBoundingClientRect();
+    const position = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    const hit = await raycaster.castRay({ position });
+    const normal = hit?.normal;
+    if (!normal) return notify("Tap on part of the model to line the box up with it.");
+    const horizontal = Math.hypot(normal.x, normal.z);
+    if (horizontal < 0.25) return notify("That face points up or down. Tap a wall or an upright face.");
+    // turn the box so its "across" direction runs along the face's normal
+    let degrees = THREE.MathUtils.radToDeg(Math.atan2(normal.x, normal.z));
+    const square = Math.round(degrees / 90) * 90;
+    if (Math.abs(degrees - square) < 1.5) degrees = square; // a wall that is square to the model's axes lands exactly square
+    setAngleDegrees(degrees);
+    stopAligning();
+  });
+
   // On a phone the panel is a sheet over the bottom of the screen. Shift the picture up by half its height so the
   // model stays centred in the part you can still see, and put it back when the sheet closes.
   const phone = matchMedia("(max-width: 760px)");
   function liftView() {
     const camera = world.camera.three;
-    const el = renderer.domElement;
-    if (panelOpen && phone.matches && el.clientHeight) {
-      camera.setViewOffset(el.clientWidth, el.clientHeight, 0, panel.offsetHeight / 2, el.clientWidth, el.clientHeight);
+    if (panelOpen && phone.matches && canvas.clientHeight) {
+      camera.setViewOffset(canvas.clientWidth, canvas.clientHeight, 0, panel.offsetHeight / 2, canvas.clientWidth, canvas.clientHeight);
     } else {
       camera.clearViewOffset();
     }
@@ -157,6 +247,7 @@ export function createSectionBox({ world, box, button }) {
   const showPanel = (on) => {
     panelOpen = on;
     panel.classList.toggle("hidden", !on);
+    if (!on) stopAligning();
     apply();
     liftView();
   };
@@ -167,7 +258,8 @@ export function createSectionBox({ world, box, button }) {
     sliders.forEach((s) => s.reset());
     range.lo = [0, 0, 0];
     range.hi = [1, 1, 1];
-    apply();
+    stopAligning();
+    setAngleDegrees(0);
   });
   panel.querySelector("[data-done]").addEventListener("click", () => showPanel(false));
 

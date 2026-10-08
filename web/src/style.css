@@ -283,8 +283,8 @@ button.link {
   margin: 0;
   min-height: 42px;
   padding: 0.5rem 0.9rem;
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: 0.95rem;
+  font-weight: 500;
 }
 
 .brand-mark {
@@ -681,9 +681,9 @@ textarea {
   .viewer-tools { order: 3; width: 100%; flex-wrap: wrap; gap: 0.4rem; }
   .viewer-tools button, .viewer-tools select { white-space: nowrap; flex: none; }
   .viewer-header button.secondary { padding: 0.4rem 0.7rem; font-size: 0.85rem; }
-  .viewer-header select.shading-select { min-height: 46px; padding: 0.55rem 0.9rem; font-size: 1.05rem; }
+  .viewer-header select.shading-select { min-height: 46px; padding: 0.55rem 0.9rem; font-size: 0.95rem; }
   .property-panel { top: var(--viewer-header-h, 6rem); }
-  .viewer-hint { left: 0.6rem; right: 0.6rem; bottom: 0.6rem; transform: none; max-width: none; justify-content: space-between; border-radius: 14px; }
+  .viewer-hint { left: 0.6rem; right: 4.2rem; bottom: 0.6rem; transform: none; max-width: none; justify-content: space-between; border-radius: 14px; }
   .page-head { flex-direction: column; align-items: stretch; }
   .head-actions { flex-wrap: wrap; }
   .send-bar button { width: 100%; }
@@ -751,7 +751,32 @@ a.button, label.button { display: inline-flex; align-items: center; justify-cont
 @media (max-width: 760px) {
   .section-help { display: none; }
   .section-panel { left: 0; right: 0; bottom: 0; width: auto; max-height: 52vh; border-radius: 16px 16px 0 0; border-left: 0; border-right: 0; border-bottom: 0; padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
-  .dual-track { height: 52px; }
+  .dual-track { height: 44px; }
+  .dual { margin-bottom: 0.6rem; }
   .dual-thumb { width: 36px; height: 36px; margin: -18px 0 0 -18px; }
   .section-head-actions button { min-height: 44px; padding: 0 1rem; }
 }
+
+/* help button, bottom corner of the 3D view */
+.help-fab {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 1.15rem;
+  font-weight: 600;
+  background: rgba(20, 24, 31, 0.92);
+  color: var(--text);
+  border: 1px solid var(--border);
+  z-index: 22;
+}
+@media (max-width: 760px) { .help-fab { right: 0.6rem; bottom: 0.6rem; } }
+
+/* section box: turn control */
+.section-rotate { margin-top: 0.4rem; padding-top: 0.9rem; border-top: 1px solid var(--border); }
+.section-rotate input[type="range"] { width: 100%; height: 40px; margin: 0.2rem 0 0.6rem; padding: 0; accent-color: #ffa500; background: none; border: 0; }
+.section-rotate-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.section-rotate-actions button { flex: 1 1 auto; }
