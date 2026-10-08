@@ -351,6 +351,9 @@ async function showDocumentQr(file) {
     await navigator.clipboard.writeText(link.url).catch(() => {});
     e.target.textContent = "Copied";
   });
+  wrap.querySelector(".secret").after(
+    cadTools({ pngUrl: `/api/files/${encodeURIComponent(file.id)}/qr.png`, dxfUrl: `/api/files/${encodeURIComponent(file.id)}/qr.dxf` })
+  );
 }
 
 // Same reading of "name + space + revision code" as the server (the server is what actually enforces it).
@@ -457,6 +460,54 @@ Rename anyway?`)) return;
   }
 }
 
+// "Put it on a drawing": copy the QR as a picture to paste into a DWG, or download it as a DXF (sharp vector
+// geometry at an exact size and drawing scale) to INSERT into AutoCAD/BricsCAD.
+function cadTools({ pngUrl, dxfUrl }) {
+  const saved = (() => {
+    try {
+      return JSON.parse(localStorage.getItem("qr-cad") || "{}");
+    } catch {
+      return {};
+    }
+  })();
+  const box = document.createElement("div");
+  box.className = "cad-tools";
+  box.innerHTML = `
+    <h4>Put it on a drawing</h4>
+    <div class="cad-row">
+      <button type="button" data-copy-image>Copy image</button>
+      <span class="muted small">then paste (Ctrl+V) into the drawing</span>
+    </div>
+    <div class="cad-row">
+      <label>Size on the sheet (mm)<input type="number" name="mm" min="8" max="200" step="1" value="${saved.mm || 25}" /></label>
+      <label>Drawing scale 1:<input type="number" name="scale" min="1" max="5000" step="1" value="${saved.scale || 1}" /></label>
+      <a class="button" data-dxf download>Download .dxf</a>
+    </div>
+    <p class="muted small">In AutoCAD or BricsCAD: <strong>INSERT</strong> → Browse → pick the .dxf → click to place it. It arrives as one sharp block (not a picture) at exactly that size. Use scale 1 for a layout/paper space; in model space at 1:50 enter 50.</p>`;
+  const mm = box.querySelector('[name="mm"]');
+  const scale = box.querySelector('[name="scale"]');
+  const link = box.querySelector("[data-dxf]");
+  const update = () => {
+    link.href = `${dxfUrl}?mm=${encodeURIComponent(mm.value || 25)}&scale=${encodeURIComponent(scale.value || 1)}`;
+    try {
+      localStorage.setItem("qr-cad", JSON.stringify({ mm: mm.value, scale: scale.value }));
+    } catch {}
+  };
+  mm.addEventListener("input", update);
+  scale.addEventListener("input", update);
+  update();
+  box.querySelector("[data-copy-image]").addEventListener("click", async (event) => {
+    try {
+      const blob = await (await fetch(pngUrl, { credentials: "same-origin" })).blob();
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      event.target.textContent = "Copied";
+    } catch {
+      toast("Couldn't copy automatically. Right-click the QR code and choose Copy image.", "error");
+    }
+  });
+  return box;
+}
+
 // ---------- link / QR ----------
 async function showShare() {
   let data;
@@ -483,6 +534,7 @@ async function showShare() {
       await navigator.clipboard.writeText(url).catch(() => {});
       e.target.textContent = "Copied";
     });
+    wrap.querySelector(".secret").after(cadTools({ pngUrl: `${P}/qr.png`, dxfUrl: `${P}/qr.dxf` }));
     wrap.querySelector("[data-reset]")?.addEventListener("click", async () => {
       if (!confirm("Reset the project link? Existing QR codes and links stop working immediately.")) return;
       try {

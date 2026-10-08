@@ -803,3 +803,11 @@ a.button, label.button { display: inline-flex; align-items: center; justify-cont
 .rev-banner .button, .rev-banner button { flex: none; }
 .rev-banner.old .button { background: #fff; color: #7a1f1f; }
 @media (max-width: 760px) { .rev-banner { flex-wrap: wrap; } .rev-banner > span { flex: 1 1 100%; } }
+
+/* QR "put it on a drawing" tools */
+.cad-tools { margin-top: 1rem; padding-top: 0.9rem; border-top: 1px solid var(--border); }
+.cad-tools h4 { margin: 0 0 0.6rem; font-size: 0.95rem; }
+.cad-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.6rem 0.8rem; margin-bottom: 0.7rem; }
+.cad-row label { flex: 1 1 8rem; margin: 0; font-size: 0.8rem; color: var(--text-dim); }
+.cad-row input { margin-top: 0.25rem; }
+.modal-content { max-height: 92vh; overflow-y: auto; }

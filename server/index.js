@@ -9,6 +9,7 @@ import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { nanoid } from "nanoid";
 import QRCode from "qrcode";
+import { qrToDxf } from "./qr-dxf.js";
 import { openDb } from "./db.js";
 import { FOLDERS, FOLDER_KEYS, REGISTER_NAME, ROLES, createRegister, editRegister, parseRegister } from "./register.js";
 import { createBackend } from "./storage-backends/index.js";
@@ -620,6 +621,19 @@ api.post("/projects/:pid/link/reset", projectCtx, needRole("admin"), async (req,
   res.json({ url: linkFor(req, { ...req.project, link_key: key }) });
 });
 
+// The same code as vector geometry for CAD: ?mm= is the size on the printed sheet, ?scale= the drawing scale (1:scale).
+const dxfOptions = (req) => ({
+  mm: Math.min(200, Math.max(8, Number(req.query.mm) || 25)),
+  scale: Math.min(5000, Math.max(1, Number(req.query.scale) || 1)),
+});
+const sendDxf = (res, text, name) => {
+  res.attachment(`${name.replace(/[\u005c/:*?"<>|]+/g, " ").trim().slice(0, 120)}.dxf`);
+  res.type("application/dxf").send(text);
+};
+api.get("/projects/:pid/qr.dxf", projectCtx, needRole("designer"), (req, res) => {
+  sendDxf(res, qrToDxf(linkFor(req, req.project), dxfOptions(req)), `QR project ${req.project.name}`);
+});
+
 api.get("/projects/:pid/qr.png", projectCtx, needRole("designer"), (req, res) => {
   res.type("png");
   QRCode.toFileStream(res, linkFor(req, req.project), QR_OPTIONS);
@@ -1086,6 +1100,9 @@ const documentLink = (req, project, folderKey, entry) => {
 };
 api.get("/files/:fid/link", fileCtx, needRole("designer"), needFolder, loadFile, (req, res) => {
   res.json({ url: documentLink(req, req.project, req.folderKey, req.entry), rev: parseRevision(req.entry.name)?.rev ?? null });
+});
+api.get("/files/:fid/qr.dxf", fileCtx, needRole("designer"), needFolder, loadFile, (req, res) => {
+  sendDxf(res, qrToDxf(documentLink(req, req.project, req.folderKey, req.entry), dxfOptions(req)), `QR ${req.entry.name.replace(/\.[^.]+$/, "")}`);
 });
 api.get("/files/:fid/qr.png", fileCtx, needRole("designer"), needFolder, loadFile, (req, res) => {
   res.type("png");
