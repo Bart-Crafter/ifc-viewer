@@ -2,7 +2,7 @@ import * as THREE from "three";
 import * as OBC from "@thatopen/components";
 import CameraControls from "camera-controls";
 import fragmentsWorkerUrl from "@thatopen/fragments/worker?url";
-import { api, toast } from "./common.js";
+import { api, setupRevisionBanner, toast } from "./common.js";
 import { createEdgePass } from "./edges.js";
 import { createSectionBox } from "./section.js";
 
@@ -74,6 +74,7 @@ async function init() {
   nameEl.textContent = info.name;
   revisionEl.textContent = info.modified ? `Updated ${new Date(info.modified).toLocaleDateString()}` : "";
   document.title = `${info.name} — Crafter Engineering`;
+  setupRevisionBanner(info, new URLSearchParams(location.search).get("scanned"));
   document.getElementById("back-link").href = `/p/${info.project.id}`;
 
   if (info.status !== "ready") {

@@ -29,6 +29,13 @@ Designers and admins can show the project's QR code and link. Anyone with it can
 ### Quick-send links ("WeTransfer-style")
 Designers and admins can tick files across any folders and create a link that **expires after 3 days** (can be cancelled any time). Anyone with it can download those files (individually or as one zip), as often as they like until it expires. It gives **no access to the project**, other files, or people. The address is shown once when created; only a hash is stored.
 
+### Revision control
+Name documents with their revision code at the end: `100478-CFT-DD-XX-DR-C-101 C02.pdf` is drawing `100478-CFT-DD-XX-DR-C-101`, revision **C02** (a space, `_` or `-` before the code works too). The letter is the stage, ranked **P** (preliminary) < **B** (for approval) < **C** (construction), then by number, so C01 supersedes B09. Change the order with the `REVISION_ORDER` setting (default `PBC`; other letters rank after those).
+- Revisions of the same drawing (same name, same file type, in any folder) are grouped. The project page marks each file with its revision and **Latest** or **Superseded by …**, and viewers and clients can hide superseded ones.
+- Opening a superseded drawing in the PDF or 3D viewer shows a red **Out of date** banner with a button to open the latest. Uploading an older revision than the latest warns the uploader.
+- **QR code on a drawing:** designers click **QR** on a PDF or IFC to get a code to print on that drawing. It carries the drawing and the revision it was printed from. Whoever scans it is taken to the *newest* revision and told "that QR code was for revision C01, which has been replaced". If the newest revision is in a folder they can't open, they are told a newer one exists and to ask for it. Scanning needs no sign-in if the folder is public.
+- Files without a revision code behave as before.
+
 ### Copyright and sharing rights
 Uploading asks the person to confirm Crafter Engineering has the right to share the file, and the server records it. Pages carry a confidentiality/copyright notice. See [docs/COPYRIGHT-AND-LIABILITY.md](docs/COPYRIGHT-AND-LIABILITY.md) for the risks of hosting files that reference other companies' drawings or licensed data, and the recommended policy.
 

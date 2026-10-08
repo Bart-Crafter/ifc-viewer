@@ -1,6 +1,6 @@
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { api } from "./common.js";
+import { api, setupRevisionBanner } from "./common.js";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -37,6 +37,7 @@ async function start() {
   }
 
   document.title = `${info.name} — Crafter Engineering`;
+  setupRevisionBanner(info, new URLSearchParams(location.search).get("scanned"));
   document.getElementById("file-name").textContent = info.name;
   document.getElementById("back-link").href = `/p/${info.project.id}`;
 

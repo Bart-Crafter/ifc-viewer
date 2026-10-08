@@ -39,6 +39,7 @@ let via = null;
 let folders = [];
 let files = [];
 const selected = new Set(); // file ids picked for a quick-send link
+let hideOld = null; // hide superseded revisions (default: on for people who only view)
 let pollTimer = null;
 
 function shell(inner) {
@@ -218,11 +219,18 @@ function fileRow(f) {
     actions.push(`<button type="button" class="secondary small" data-action="rename" data-id="${f.id}">Rename</button>`);
     actions.push(`<button type="button" class="secondary small danger" data-action="delete" data-id="${f.id}">Delete</button>`);
   }
+  const r = f.revision;
+  const revBadges = r
+    ? r.superseded
+      ? `<span class="badge rev" title="Revision ${esc(r.rev)}">${esc(r.rev)}</span> <span class="badge bad" title="The latest revision is ${esc(r.latestRev)}">Superseded by ${esc(r.latestRev)}</span>`
+      : `<span class="badge rev" title="Revision ${esc(r.rev)}">${esc(r.rev)}</span> <span class="badge ok">Latest</span>`
+    : "";
+  if (can(role, "designer") && (f.type === "pdf" || f.type === "ifc")) actions.push(`<button type="button" class="secondary small" data-action="qr" data-id="${f.id}">QR</button>`);
   return `
-    <div class="file-row">
+    <div class="file-row ${r?.superseded ? "superseded" : ""}">
       ${can(role, "designer") ? `<input type="checkbox" class="pick" data-pick="${f.id}" ${selected.has(f.id) ? "checked" : ""} aria-label="Select ${esc(f.name)} to send" />` : ""}
       <div class="file-main">
-        <span class="file-name">${viewable ? `<a href="${viewUrl}">${esc(f.name)}</a>` : esc(f.name)}</span>
+        <span class="file-name">${viewable ? `<a href="${viewUrl}">${esc(f.name)}</a>` : esc(f.name)} ${revBadges}</span>
         <span class="file-meta">${fmtSize(f.size)} · ${fmtDate(f.updated_at)}${f.uploaded_by ? ` · ${esc(f.uploaded_by)}` : ""}</span>
       </div>
       <div class="file-status">${status}</div>
@@ -245,9 +253,14 @@ function renderSendBar() {
 
 function renderFolders() {
   const host = document.getElementById("folders");
-  host.innerHTML = folders
+  if (hideOld === null) hideOld = !can(role, "designer");
+  const oldCount = files.filter((f) => f.revision?.superseded).length;
+  const controls = oldCount
+    ? `<label class="check-line rev-toggle"><input type="checkbox" id="hide-old" ${hideOld ? "checked" : ""} /> <span>Hide superseded revisions <span class="muted">(${oldCount})</span></span></label>`
+    : "";
+  host.innerHTML = controls + folders
     .map((folder) => {
-      const list = files.filter((f) => f.folder === folder.key);
+      const list = files.filter((f) => f.folder === folder.key && !(hideOld && f.revision?.superseded));
       return `
       <section class="card folder" data-folder="${folder.key}">
         <div class="folder-head">
@@ -260,6 +273,10 @@ function renderFolders() {
     })
     .join("");
 
+  host.querySelector("#hide-old")?.addEventListener("change", (e) => {
+    hideOld = e.target.checked;
+    renderFolders();
+  });
   host.querySelectorAll("[data-upload]").forEach((input) =>
     input.addEventListener("change", () => {
       uploadMany(input.dataset.upload, [...input.files]);
@@ -300,9 +317,10 @@ async function uploadMany(folder, picked) {
   for (const file of picked) {
     status.textContent = `Uploading ${file.name}…`;
     try {
-      await uploadFile(`${P}/folders/${folder}/files?rights=1`, "POST", file, (p) => {
+      const result = await uploadFile(`${P}/folders/${folder}/files?rights=1`, "POST", file, (p) => {
         status.textContent = `Uploading ${file.name}… ${Math.round(p * 100)}%`;
       });
+      if (result?.note) toast(result.note);
     } catch (err) {
       toast(err.message, "error");
     }
@@ -312,9 +330,33 @@ async function uploadMany(folder, picked) {
   renderFolders();
 }
 
+// QR code to print on a drawing: scanning it always opens the newest revision and warns if the printed one is out of date.
+async function showDocumentQr(file) {
+  let link;
+  try {
+    link = await api(`/api/files/${file.id}/link`);
+  } catch (err) {
+    return toast(err.message, "error");
+  }
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `
+    <h3>QR code for ${esc(file.name)}</h3>
+    <p class="muted">Print this on the drawing${link.rev ? ` (it is for revision <strong>${esc(link.rev)}</strong>)` : ""}. Anyone who scans it is taken to the <strong>newest</strong> revision of this drawing, and is told if the one they scanned has been replaced. No sign-in is needed if the folder is public; otherwise they are asked to sign in.</p>
+    <img class="qr" src="/api/files/${encodeURIComponent(file.id)}/qr.png" alt="QR code for ${esc(file.name)}" />
+    <div class="secret"><code>${esc(link.url)}</code><button type="button" class="secondary small" data-copy>Copy</button></div>
+    <div class="modal-actions"><a class="button secondary" href="/api/files/${encodeURIComponent(file.id)}/qr.png" download="drawing-qr.png">Download QR image</a><button type="button" data-close>Close</button></div>`;
+  const { close } = openModal(wrap);
+  wrap.querySelector("[data-close]").addEventListener("click", close);
+  wrap.querySelector("[data-copy]").addEventListener("click", async (e) => {
+    await navigator.clipboard.writeText(link.url).catch(() => {});
+    e.target.textContent = "Copied";
+  });
+}
+
 async function fileAction(action, id) {
   const file = files.find((f) => f.id === id);
   if (!file) return;
+  if (action === "qr") return showDocumentQr(file);
   try {
     if (action === "delete") {
       if (!confirm(`Delete "${file.name}"? It goes to the SharePoint recycle bin.`)) return;

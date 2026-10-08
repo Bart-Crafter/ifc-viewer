@@ -780,3 +780,26 @@ a.button, label.button { display: inline-flex; align-items: center; justify-cont
 .section-rotate input[type="range"] { width: 100%; height: 40px; margin: 0.2rem 0 0.6rem; padding: 0; accent-color: #ffa500; background: none; border: 0; }
 .section-rotate-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .section-rotate-actions button { flex: 1 1 auto; }
+
+/* ---------- revisions ---------- */
+.badge.ok { color: #6ee7b7; border-color: #2c6b57; }
+.badge.rev { color: var(--text); border-color: var(--border); font-variant-numeric: tabular-nums; }
+.file-row.superseded .file-name, .file-row.superseded .file-meta { opacity: 0.6; }
+.rev-toggle { margin: 0 0 1rem; }
+.rev-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.7rem 1rem;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  z-index: 12;
+}
+.rev-banner.hidden { display: none; }
+.rev-banner.old { background: #7a1f1f; color: #fff; border-bottom: 2px solid #ff6b6b; }
+.rev-banner.moved { background: #7a5a10; color: #fff; border-bottom: 2px solid #ffcf66; }
+.rev-banner.current { background: #14452f; color: #d7ffe9; padding: 0.4rem 1rem; font-size: 0.85rem; }
+.rev-banner .button, .rev-banner button { flex: none; }
+.rev-banner.old .button { background: #fff; color: #7a1f1f; }
+@media (max-width: 760px) { .rev-banner { flex-wrap: wrap; } .rev-banner > span { flex: 1 1 100%; } }

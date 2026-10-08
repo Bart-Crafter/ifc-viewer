@@ -222,3 +222,28 @@ export const newProjectPayload = (form) => ({
   description: form.description.value,
   sharepointUrl: form.sharepointUrl?.value,
 });
+
+// Revision warning shown at the top of the PDF and 3D viewers.
+// `scanned` is the revision printed in the QR code the person scanned (if they got here that way).
+export function setupRevisionBanner(info, scanned) {
+  const el = document.getElementById("rev-banner");
+  const r = info.revision;
+  if (!el || !r) return;
+  let kind;
+  let html;
+  if (r.superseded) {
+    kind = "old";
+    html = `<span><strong>Out of date.</strong> You are looking at revision <strong>${esc(r.rev)}</strong>. The latest revision is <strong>${esc(r.latestRev)}</strong>.${r.latestId ? "" : " You don't have access to it, so ask for the current drawing."}</span>
+      ${r.latestId ? `<a class="button small" href="/view/${esc(info.type)}/${encodeURIComponent(r.latestId)}">Open ${esc(r.latestRev)}</a>` : ""}`;
+  } else if (scanned && scanned.toUpperCase() !== r.rev) {
+    kind = "moved";
+    html = `<span><strong>That QR code was for revision ${esc(scanned.toUpperCase())}, which has been replaced.</strong> You are now looking at the latest revision, <strong>${esc(r.rev)}</strong>.</span><button type="button" class="secondary small" data-dismiss>OK</button>`;
+  } else {
+    kind = "current";
+    html = `<span>Current revision <strong>${esc(r.rev)}</strong></span><button type="button" class="secondary small" data-dismiss aria-label="Dismiss">&times;</button>`;
+  }
+  el.className = `rev-banner ${kind}`;
+  el.innerHTML = html;
+  el.querySelector("[data-dismiss]")?.addEventListener("click", () => el.classList.add("hidden"));
+  if (kind === "current") setTimeout(() => el.classList.add("hidden"), 6000);
+}

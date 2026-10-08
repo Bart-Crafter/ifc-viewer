@@ -776,6 +776,60 @@ const typeOf = (name) => {
   const ext = extOf(name);
   return ext === "pdf" || ext === "ifc" ? ext : "other";
 };
+// ---------- revisions ----------
+// Documents carry a revision code at the end of the name: "100478-CFT-DD-XX-DR-C-101 C02" is drawing
+// "100478-CFT-DD-XX-DR-C-101", revision C02. The letter is the stage and the digits the issue within it. Stages are
+// ranked by REVISION_ORDER (default P, B, C: preliminary, then for approval, then construction), then by number.
+const REVISION_ORDER = (process.env.REVISION_ORDER || "PBC").toUpperCase();
+
+function parseRevision(name) {
+  const stem = name.replace(/\.[^.]+$/, "");
+  const m = /^(.*\S)[\s_-]+([A-Za-z])(\d{2,3})$/.exec(stem);
+  if (!m) return null;
+  const letter = m[2].toUpperCase();
+  const at = REVISION_ORDER.indexOf(letter);
+  const stage = at >= 0 ? at : REVISION_ORDER.length + (letter.charCodeAt(0) - 65); // unknown letters rank after the listed ones
+  return { base: m[1].trim(), rev: `${letter}${m[3]}`, rank: stage * 1000 + Number(m[3]) };
+}
+
+// Files that are revisions of the same drawing share a series: same name apart from the revision, same file type.
+const seriesOf = (name) => `${extOf(name)}:${(parseRevision(name)?.base ?? name.replace(/\.[^.]+$/, "")).toLowerCase()}`;
+
+// Every revision of every drawing in the project, across all five folders (so "newer exists" is known even when
+// the newer one is in a folder this person can't open).
+async function revisionGroups(project) {
+  const groups = new Map();
+  const lists = await Promise.all(FOLDER_KEYS.map((k) => listing(project, k).catch(() => ({ files: [] }))));
+  FOLDER_KEYS.forEach((folder, i) => {
+    for (const { entry } of lists[i].files) {
+      const parsed = parseRevision(entry.name);
+      if (!parsed) continue;
+      const key = seriesOf(entry.name);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push({ folder, id: fileKey(project, folder, entry), name: entry.name, rev: parsed.rev, rank: parsed.rank });
+    }
+  });
+  return groups;
+}
+
+// What a person should be told about one file's revision. null when the name carries no revision code.
+function describeRevision(groups, entry, access) {
+  const parsed = parseRevision(entry.name);
+  if (!parsed) return null;
+  const series = seriesOf(entry.name);
+  const items = groups.get(series) ?? [];
+  const top = Math.max(parsed.rank, ...items.map((i) => i.rank));
+  const newest = items.filter((i) => i.rank === top);
+  const reachable = newest.find((i) => access.folders.has(i.folder));
+  return {
+    rev: parsed.rev,
+    series,
+    superseded: parsed.rank < top,
+    latestRev: newest[0]?.rev ?? parsed.rev,
+    latestId: reachable?.id ?? null, // null: the newest one is in a folder this person can't open
+  };
+}
+
 const fileKey = (project, folderKey, entry) => `${project.id}~${folderKey}~${entry.id}`;
 const versionTag = (entry) => crypto.createHash("sha1").update(entry.versionKey).digest("hex").slice(0, 12);
 const cacheNames = (entry) => ({ frag: `${entry.id}_${versionTag(entry)}.frag`, props: `${entry.id}_${versionTag(entry)}.json` });
@@ -864,7 +918,13 @@ async function listing(project, key) {
       }
       return { entry: e, status, error };
     })
-    .sort((a, b) => a.entry.name.localeCompare(b.entry.name, undefined, { sensitivity: "base" }));
+    // Revisions of one drawing sit together, newest first; everything else alphabetically.
+    .sort((a, b) => {
+      const pa = parseRevision(a.entry.name);
+      const pb = parseRevision(b.entry.name);
+      const byName = (pa?.base ?? a.entry.name).localeCompare(pb?.base ?? b.entry.name, undefined, { sensitivity: "base" });
+      return byName || (pb?.rank ?? -1) - (pa?.rank ?? -1) || a.entry.name.localeCompare(b.entry.name, undefined, { sensitivity: "base" });
+    });
   const result = { at: Date.now(), ref, files };
   listings.set(cacheKey, result);
   for (const f of files) if (f.status === "processing") enqueueConversion(project, ref, f.entry);
@@ -884,7 +944,7 @@ function sendStream(res, { stream, size }, headers) {
 
 api.get("/projects/:pid/files", projectCtx, needRole("viewer"), async (req, res) => {
   const keys = FOLDER_KEYS.filter((k) => req.access.folders.has(k));
-  const lists = await Promise.all(keys.map((k) => listing(req.project, k)));
+  const [lists, groups] = await Promise.all([Promise.all(keys.map((k) => listing(req.project, k))), revisionGroups(req.project)]);
   const files = [];
   keys.forEach((key, i) => {
     for (const { entry, status, error } of lists[i].files) {
@@ -898,6 +958,7 @@ api.get("/projects/:pid/files", projectCtx, needRole("viewer"), async (req, res)
         error,
         updated_at: entry.modified,
         uploaded_by: entry.modifiedBy,
+        revision: describeRevision(groups, entry, req.access),
       });
     }
   });
@@ -932,7 +993,15 @@ api.post("/projects/:pid/folders/:folder/files", projectCtx, needRole("designer"
     }
     invalidate(req.project, key);
     await audit(req, "file_uploaded", { projectId: req.project.id, fileId: fileKey(req.project, key, entry), detail: `${name} → ${FOLDER_BY_KEY[key].label} (sharing rights confirmed)` });
-    res.status(201).json({ id: fileKey(req.project, key, entry), name, folder: key });
+    // Tell the uploader how this revision sits with the others (a stale upload is easy to do by mistake).
+    let note = null;
+    const mine = describeRevision(await revisionGroups(req.project), entry, req.access);
+    if (mine?.superseded) note = `A newer revision (${mine.latestRev}) already exists, so ${mine.rev} is marked as superseded.`;
+    else if (mine) {
+      const older = (await revisionGroups(req.project)).get(mine.series)?.filter((i) => i.rev !== mine.rev).length ?? 0;
+      if (older) note = `${mine.rev} is now the latest revision. ${older} older revision${older === 1 ? " is" : "s are"} marked as superseded.`;
+    }
+    res.status(201).json({ id: fileKey(req.project, key, entry), name, folder: key, note });
   } finally {
     if (tmp) fsp.rm(tmp, { force: true }).catch(() => {});
   }
@@ -965,7 +1034,44 @@ api.get("/files/:fid", fileCtx, needRole("viewer"), needFolder, loadFile, async 
     project: { id: req.project.id, name: req.project.name },
     role: req.role,
     canDownload: can(req.role, "client"),
+    revision: describeRevision(await revisionGroups(req.project), e, req.access),
   });
+});
+
+// A drawing's QR code points here: it finds the newest revision this person can open for the drawing named in the
+// code, and says whether the revision they scanned was the newest (so the viewer can warn them if it wasn't).
+api.get("/projects/:pid/resolve", projectCtx, needRole("viewer"), async (req, res) => {
+  const series = String(req.query.series ?? "");
+  const scanned = String(req.query.rev ?? "").toUpperCase();
+  const items = (await revisionGroups(req.project)).get(series);
+  if (!items?.length) return res.status(404).json({ error: "That drawing is no longer on this project." });
+  const top = Math.max(...items.map((i) => i.rank));
+  const newest = items.filter((i) => i.rank === top);
+  const reachable = newest.find((i) => req.access.folders.has(i.folder)) ?? items.filter((i) => req.access.folders.has(i.folder)).sort((a, b) => b.rank - a.rank)[0];
+  if (!reachable) return res.status(403).json({ error: "You don't have access to that drawing." });
+  res.json({
+    id: reachable.id,
+    type: typeOf(reachable.name),
+    name: reachable.name,
+    rev: reachable.rev,
+    scannedRev: scanned || null,
+    newestRev: newest[0].rev,
+    newestHidden: reachable.rank < top, // a newer one exists, but in a folder this person can't open
+  });
+});
+
+// QR code to print on a drawing. It carries the drawing's name and the revision it was printed from.
+const documentLink = (req, project, folderKey, entry) => {
+  const parsed = parseRevision(entry.name);
+  const query = new URLSearchParams({ s: seriesOf(entry.name), ...(parsed ? { rev: parsed.rev } : {}), k: project.link_key });
+  return `${baseUrl(req)}/d/${project.id}?${query}`;
+};
+api.get("/files/:fid/link", fileCtx, needRole("designer"), needFolder, loadFile, (req, res) => {
+  res.json({ url: documentLink(req, req.project, req.folderKey, req.entry), rev: parseRevision(req.entry.name)?.rev ?? null });
+});
+api.get("/files/:fid/qr.png", fileCtx, needRole("designer"), needFolder, loadFile, (req, res) => {
+  res.type("png");
+  QRCode.toFileStream(res, documentLink(req, req.project, req.folderKey, req.entry), { width: 512, margin: 2 });
 });
 
 // Viewer-role users (and link holders) may only read PDFs through the page's own scripts, not by opening the address directly.
@@ -1285,6 +1391,7 @@ function pageFor(url) {
   const pathname = url.split("?")[0];
   if (pathname.startsWith("/p/")) return "project.html";
   if (pathname.startsWith("/s/")) return "share.html";
+  if (pathname.startsWith("/d/")) return "doc.html";
   if (pathname.startsWith("/view/ifc/")) return "model.html";
   if (pathname.startsWith("/view/pdf/")) return "pdf.html";
   if (pathname === "/admin") return "admin.html";
