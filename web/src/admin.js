@@ -25,7 +25,7 @@ async function render() {
                     ${u.isAdmin ? '<span class="badge role-admin">Site admin</span> ' : ""}
                     ${u.disabled ? '<span class="badge bad">Disabled</span> ' : ""}
                     ${u.mustChange ? '<span class="badge warn" title="Hasn\'t chosen their own password yet">Temp password</span>' : ""}
-                    ${u.mfa ? '<span class="badge ok" title="Signs in with a password and an authenticator app code">2-step on</span>' : '<span class="badge warn" title="Will be asked to set up the authenticator app at next sign-in">2-step not set up</span>'}
+                    ${u.mfa ? '<span class="badge ok" title="Signs in with a password and an authenticator app code">2-step on</span>' : u.staff ? '<span class="badge warn" title="Will be asked to set up the authenticator app at next sign-in">2-step not set up</span>' : ""}
                   </td>
                   <td>${u.projects}</td>
                   <td class="row-actions">

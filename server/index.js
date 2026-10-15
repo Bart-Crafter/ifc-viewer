@@ -50,8 +50,11 @@ console.log(`File storage: ${storage.kind === "sharepoint" ? "SharePoint (Micros
 
 const now = () => new Date().toISOString();
 
-// Two-step sign-in (authenticator app) is required for every account unless MFA_REQUIRED=0 (for local testing only).
+// Two-step sign-in (authenticator app) is required for staff: site administrators and anyone who is a Designer or Admin
+// on at least one project. Clients and viewers sign in with a password only (and are limited to viewing/downloading).
+// MFA_REQUIRED=0 switches the requirement off (local testing only); MFA_REQUIRED=all requires it of everyone.
 const MFA_REQUIRED = process.env.MFA_REQUIRED !== "0";
+const MFA_FOR_ALL = process.env.MFA_REQUIRED === "all";
 // Key that protects the authenticator secrets stored in the database. Set APP_SECRET on the host; if it isn't set one is
 // generated and kept in the database, which still works but a copy of the database would then include the key.
 let appSecret = process.env.APP_SECRET;
@@ -65,7 +68,9 @@ if (!appSecret) {
   appSecret = row.value;
   if (isProd) console.warn("APP_SECRET is not set. Add it to the host's environment so the 2-step secrets are not stored next to their key.");
 }
-const needsMfaSetup = (u) => MFA_REQUIRED && !u.mfa_enabled;
+const needsMfaSetup = (u) => MFA_REQUIRED && !u.mfa_enabled && (MFA_FOR_ALL || !!u.is_staff);
+const isStaff = async (u) =>
+  !!u.is_admin || !!(await db.one("SELECT 1 AS x FROM register_index WHERE email = $1 AND role IN ('designer', 'admin') LIMIT 1", [u.email]));
 const publicUser = (u) => ({
   id: u.id,
   email: u.email,
@@ -400,6 +405,7 @@ api.post("/auth/login", async (req, res) => {
 });
 
 async function startSession(req, res, user) {
+  user.is_staff = await isStaff(user);
   const token = await sessions.create(user.id);
   res.cookie("sid", token, { httpOnly: true, sameSite: "lax", secure: req.secure, path: "/", maxAge: sessions.maxAgeMs });
   req.user = user;
@@ -501,13 +507,15 @@ const adminUserRow = (u) => ({
   disabled: !!u.disabled,
   mustChange: !!u.must_change,
   mfa: !!u.mfa_enabled,
+  staff: !!u.is_staff,
   createdAt: u.created_at,
   projects: u.projects ?? 0,
 });
 
 api.get("/admin/users", requireSiteAdmin, async (req, res) => {
   const rows = await db.all(
-    `SELECT u.*, (SELECT COUNT(*) FROM register_index r WHERE r.email = u.email)::int AS projects
+    `SELECT u.*, (SELECT COUNT(*) FROM register_index r WHERE r.email = u.email)::int AS projects,
+            CASE WHEN u.is_admin = 1 OR EXISTS (SELECT 1 FROM register_index r WHERE r.email = u.email AND r.role IN ('designer', 'admin')) THEN 1 ELSE 0 END AS is_staff
        FROM users u ORDER BY lower(u.name)`
   );
   res.json(rows.map(adminUserRow));

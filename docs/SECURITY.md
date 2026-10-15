@@ -12,7 +12,7 @@ If any one door is left weak, the others don't help. This page lists what the co
 
 | Protection | Detail |
 | --- | --- |
-| **Two-step sign-in for every account** | Password **and** a 6-digit code from an authenticator app (Microsoft Authenticator, Google Authenticator, 1Password…). Set up at first sign-in; ten one-time recovery codes are shown once. Each code works only once. Authenticator secrets are encrypted in the database with `APP_SECRET`. A site admin can **Reset 2-step** for a lost phone. Switch off only for local testing with `MFA_REQUIRED=0`. |
+| **Two-step sign-in for all staff** | Required for site admins and anyone who is a Designer or Admin on any project (clients and viewers sign in with a password only, and are limited to viewing/downloading). Password **and** a 6-digit code from an authenticator app (Microsoft Authenticator, Google Authenticator, 1Password…). Set up at first sign-in; ten one-time recovery codes are shown once. Each code works only once. Authenticator secrets are encrypted in the database with `APP_SECRET`. A site admin can **Reset 2-step** for a lost phone. Switch off only for local testing with `MFA_REQUIRED=0`. |
 | Passwords | Hashed with scrypt, 10+ characters, temporary passwords must be changed, 5 wrong tries per account and 30 per address per 15 minutes then a lock-out. Wrong-code guessing is locked out separately (8 tries). |
 | Sessions | Random tokens stored only as hashes, HttpOnly cookie, `Secure` over HTTPS, 7-day sliding expiry, all other sessions ended when a password changes or an account is disabled. |
 | Access rules | Decided by the project's `Project Access.xlsx` (read live, fails closed): per person, per folder. A viewer can't download; clients can't upload; only designers/admins can change files. |
@@ -69,7 +69,7 @@ In this order (each step takes under a minute):
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `MFA_REQUIRED` | on | `0` turns two-step sign-in off (local testing only). |
+| `MFA_REQUIRED` | staff | Unset: required for site admins and project Designers/Admins. `all`: required for every account. `0`: off (local testing only). |
 | `APP_SECRET` | generated and stored in the database if missing | Key that encrypts the authenticator secrets. Set it on the host. |
 | `DOWNLOAD_LIMIT_PER_HOUR` | 400 | Files one account or address can fetch per hour. |
 | `SHARE_DAYS` | 3 | Fixed at 3 in production. |

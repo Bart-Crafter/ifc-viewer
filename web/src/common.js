@@ -203,7 +203,7 @@ export async function mfaSetupModal() {
   }
   wrap.innerHTML = `
     <h3>Set up two-step sign-in</h3>
-    <p>To protect the project files, every account signs in with a password <strong>and</strong> a code from an app on your phone.</p>
+    <p>To protect the project files, staff accounts sign in with a password <strong>and</strong> a code from an app on your phone.</p>
     <ol class="mfa-steps">
       <li>Install an authenticator app (Microsoft Authenticator, Google Authenticator, 1Password…).</li>
       <li>Scan this code with the app, or type the key in by hand.

@@ -24,7 +24,7 @@ Who is on a project, their role, and which folders they can open are kept in **`
 - Anyone who can edit that Excel file in SharePoint can change who has access, so keep write access to the Submissions folder to staff you trust.
 
 ### Security
-Every account signs in with a password **and** a code from an authenticator app (set up at first sign-in, with recovery codes; admins can reset it for a lost phone). Downloads are capped per account and per address, and every sign-in and file change is logged. The protections built in, and the steps IT should take on the Microsoft side and on the hosting accounts, are in **[docs/SECURITY.md](docs/SECURITY.md)**.
+Staff (site admins and anyone who is a Designer or Admin on a project) sign in with a password **and** a code from an authenticator app (set up at first sign-in, with recovery codes; admins can reset it for a lost phone). Clients and viewers use a password only. Downloads are capped per account and per address, and every sign-in and file change is logged. The protections built in, and the steps IT should take on the Microsoft side and on the hosting accounts, are in **[docs/SECURITY.md](docs/SECURITY.md)**.
 
 ### Project link / QR code (view only, no sign-in)
 Designers and admins can show the project's QR code and link. Anyone with it can **view** (never download) the folders marked *public* (by default 01 – PDF and 03 – IFC), straight away, no sign-in, which is meant for workers on site. Treat the QR like a key: a project admin can **Reset link** at any time and the old QR/link stops working immediately.
