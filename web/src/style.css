@@ -897,3 +897,10 @@ body.viewer-body { background: var(--viewer-bg); }
 .recent-card h2 { margin-bottom: 0.2rem; }
 .recent-row { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; flex-wrap: wrap; padding: 0.5rem 0; border-top: 1px solid var(--border); }
 .recent-row:first-of-type { margin-top: 0.6rem; }
+
+/* two-step sign-in */
+.mfa-steps { padding-left: 1.2rem; margin: 0.6rem 0 1rem; }
+.mfa-steps li { margin-bottom: 0.7rem; }
+.mfa-qr { background: #fff; display: inline-block; padding: 8px; border-radius: 10px; margin-top: 0.5rem; }
+.mfa-qr img { display: block; }
+.mfa-codes { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem 1rem; font-size: 1.05rem; letter-spacing: 0.04em; columns: 2; user-select: all; }

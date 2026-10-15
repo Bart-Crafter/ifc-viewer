@@ -50,7 +50,7 @@ export function createSessions(db) {
       if (!token) return null;
       const hash = sha(token);
       const row = await db.one(
-        `SELECT u.id, u.email, u.name, u.is_admin, u.must_change, s.expires_at
+        `SELECT u.id, u.email, u.name, u.is_admin, u.must_change, u.mfa_enabled, s.expires_at
            FROM sessions s JOIN users u ON u.id = s.user_id
           WHERE s.token_hash = $1 AND s.expires_at > $2 AND u.disabled = 0`,
         [hash, Date.now()]

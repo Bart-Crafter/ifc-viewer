@@ -146,17 +146,93 @@ export function loginCard({ title, onSuccess }) {
     const button = form.querySelector("button");
     button.disabled = true;
     try {
-      const { user } = await api("/api/auth/login", {
+      const result = await api("/api/auth/login", {
         method: "POST",
         json: { email: form.email.value, password: form.password.value },
       });
-      onSuccess(user);
+      if (result.mfaRequired) return askForCode(result.ticket);
+      onSuccess(result.user);
     } catch (err) {
       error.textContent = err.message;
       button.disabled = false;
     }
   });
+
+  // Second step: the 6-digit code from the authenticator app (or a recovery code).
+  function askForCode(ticket) {
+    card.innerHTML = `
+      <h2>Enter your code</h2>
+      <p class="muted">Open your authenticator app and type the 6-digit code for this account. Lost your phone? Use one of your recovery codes instead.</p>
+      <form>
+        <label>Code<input name="code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" required autofocus /></label>
+        <button type="submit">Continue</button>
+      </form>
+      <p class="error"></p>`;
+    const codeForm = card.querySelector("form");
+    const codeError = card.querySelector(".error");
+    codeForm.code.focus();
+    codeForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      codeError.textContent = "";
+      const go = codeForm.querySelector("button");
+      go.disabled = true;
+      try {
+        const { user } = await api("/api/auth/login/mfa", { method: "POST", json: { ticket, code: codeForm.code.value } });
+        onSuccess(user);
+      } catch (err) {
+        codeError.textContent = err.message;
+        go.disabled = false;
+        if (err.data?.restart) setTimeout(() => location.reload(), 1500);
+      }
+    });
+  }
   return card;
+}
+
+// Blocks the page until the person has set up their authenticator app (two-step sign-in).
+export async function mfaSetupModal() {
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `<h3>Set up two-step sign-in</h3><p class="muted">Loading…</p>`;
+  openModal(wrap, { closable: false });
+  let setup;
+  try {
+    setup = await api("/api/auth/mfa/setup", { method: "POST" });
+  } catch (err) {
+    wrap.innerHTML = `<h3>Set up two-step sign-in</h3><p class="error">${esc(err.message)}</p>`;
+    return;
+  }
+  wrap.innerHTML = `
+    <h3>Set up two-step sign-in</h3>
+    <p>To protect the project files, every account signs in with a password <strong>and</strong> a code from an app on your phone.</p>
+    <ol class="mfa-steps">
+      <li>Install an authenticator app (Microsoft Authenticator, Google Authenticator, 1Password…).</li>
+      <li>Scan this code with the app, or type the key in by hand.
+        <div class="mfa-qr"><img src="${setup.qr}" alt="QR code to add this account to your authenticator app" width="200" height="200" /></div>
+        <p class="small muted">Key: <code>${esc(setup.secret)}</code></p></li>
+      <li>Type the 6-digit code the app now shows.</li>
+    </ol>
+    <form>
+      <label>6-digit code<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required /></label>
+      <button type="submit">Turn on</button>
+    </form>
+    <p class="error"></p>`;
+  const form = wrap.querySelector("form");
+  const error = wrap.querySelector(".error");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    error.textContent = "";
+    try {
+      const { recoveryCodes } = await api("/api/auth/mfa/enable", { method: "POST", json: { code: form.code.value } });
+      wrap.innerHTML = `
+        <h3>Two-step sign-in is on</h3>
+        <p><strong>Save these recovery codes somewhere safe</strong> (a password manager, or print them). Each works once if you lose your phone. They are only shown now.</p>
+        <pre class="mfa-codes">${recoveryCodes.map(esc).join("\n")}</pre>
+        <button type="button" id="mfa-done">I've saved them</button>`;
+      wrap.querySelector("#mfa-done").addEventListener("click", () => location.reload());
+    } catch (err) {
+      error.textContent = err.message;
+    }
+  });
 }
 
 // Blocks the page until a user with a temporary password chooses their own.

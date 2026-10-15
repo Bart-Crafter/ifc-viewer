@@ -6,7 +6,7 @@ import {
   loadMe,
   loginCard,
   openModal,
-  passwordChangeModal,
+  passwordChangeModal, mfaSetupModal,
   showSecret,
   toast,
   topbarHtml,
@@ -94,6 +94,7 @@ function loginScreen(message) {
 async function start() {
   user = await loadMe().catch(() => null);
   if (user?.mustChange) return passwordChangeModal();
+  if (user?.mfaSetup) return mfaSetupModal();
 
   // Scanning the project's QR code (or opening its link) brings a key in the address: swap it for a view-only session.
   let linkProblem = false;

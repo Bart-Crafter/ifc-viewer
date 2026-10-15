@@ -63,7 +63,7 @@ async function init() {
   try {
     info = await api(`/api/files/${encodeURIComponent(id)}`);
   } catch (err) {
-    if (err.message === "password_change_required") return void (location.href = "/");
+    if (err.message === "password_change_required" || err.message === "mfa_setup_required") return void (location.href = "/");
     if (err.status === 401) showProblem("Sign in required", 'Please <a href="/">sign in</a> to open this model.');
     else if (err.status === 403) showProblem("No access", "Your account hasn't been given access to this project.");
     else showProblem("Model not found", "This file doesn't exist or was removed.");

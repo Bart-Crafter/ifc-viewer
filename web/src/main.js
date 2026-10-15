@@ -6,6 +6,7 @@ import {
   newProjectFormHtml,
   newProjectPayload,
   passwordChangeModal,
+  mfaSetupModal,
   topbarHtml,
   wireTopbar,
   toast,
@@ -78,4 +79,5 @@ async function renderDashboard(user) {
 const user = await loadMe();
 if (!user) renderLogin();
 else if (user.mustChange) passwordChangeModal();
+else if (user.mfaSetup) mfaSetupModal();
 else await renderDashboard(user);

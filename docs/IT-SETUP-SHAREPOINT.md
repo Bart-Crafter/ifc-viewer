@@ -1,5 +1,7 @@
 # SharePoint setup for the Crafter project portal (for IT)
 
+> Also read **[SECURITY.md](SECURITY.md)**: the extra Microsoft 365 steps (monitoring, alerts, retention, restricting where the app can sign in from) that make this as safe as possible.
+
 **What this is.** A website where clients sign in and see project files (PDF/DWG/IFC). The files stay in our SharePoint. The site reads and writes them through Microsoft Graph using **one app registration that can only see the specific folders you grant it**, never the whole tenant. Clients never get SharePoint access.
 
 **Time needed:** about 15 minutes once, then 1 minute per project folder.
@@ -12,7 +14,7 @@
    - Redirect URI: leave empty. Click **Register**.
 2. **API permissions → Add a permission → Microsoft Graph → Application permissions** → tick **`Files.SelectedOperations.Selected`** → *Add*. Then **Grant admin consent for Crafter Engineering**.
    - Add nothing else. On its own this permission gives access to **no** files until step "Per project" below.
-3. **Certificates & secrets → New client secret** (24 months). Copy the **Value** immediately.
+3. **Certificates & secrets → New client secret** (12 months at most). Copy the **Value** immediately.
 4. Send the project owner these three values by a secure route (not plain email):
    - Directory (tenant) ID
    - Application (client) ID

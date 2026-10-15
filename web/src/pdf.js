@@ -28,7 +28,7 @@ async function start() {
   try {
     info = await api(`/api/files/${encodeURIComponent(fileId)}`);
   } catch (err) {
-    if (err.message === "password_change_required") return void (location.href = "/");
+    if (err.message === "password_change_required" || err.message === "mfa_setup_required") return void (location.href = "/");
     document.getElementById("file-name").textContent = "Can't open this file";
     showMessage(
       err.status === 401 || err.status === 403

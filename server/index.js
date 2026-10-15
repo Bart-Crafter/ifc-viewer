@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { nanoid } from "nanoid";
 import QRCode from "qrcode";
 import { stampQr, cleanPlacement } from "./stamp.js";
+import { newSecret, checkCode, otpauthUri, groupSecret, newRecoveryCodes, useRecoveryCode, encrypt, decrypt, signTicket, readTicket } from "./mfa.js";
 import { openDb } from "./db.js";
 import { FOLDERS, FOLDER_KEYS, REGISTER_NAME, ROLES, createRegister, editRegister, parseRegister } from "./register.js";
 import { createBackend } from "./storage-backends/index.js";
@@ -48,7 +49,31 @@ const storage = createBackend({ dataDir, env: process.env });
 console.log(`File storage: ${storage.kind === "sharepoint" ? "SharePoint (Microsoft Graph)" : "local folder (development only)"}`);
 
 const now = () => new Date().toISOString();
-const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name, isAdmin: !!u.is_admin, mustChange: !!u.must_change });
+
+// Two-step sign-in (authenticator app) is required for every account unless MFA_REQUIRED=0 (for local testing only).
+const MFA_REQUIRED = process.env.MFA_REQUIRED !== "0";
+// Key that protects the authenticator secrets stored in the database. Set APP_SECRET on the host; if it isn't set one is
+// generated and kept in the database, which still works but a copy of the database would then include the key.
+let appSecret = process.env.APP_SECRET;
+if (!appSecret) {
+  let row = await db.one("SELECT value FROM app_settings WHERE key = 'app_secret'");
+  if (!row) {
+    row = { value: crypto.randomBytes(32).toString("base64url") };
+    await db.run("INSERT INTO app_settings (key, value) VALUES ('app_secret', $1) ON CONFLICT (key) DO NOTHING", [row.value]);
+    row = await db.one("SELECT value FROM app_settings WHERE key = 'app_secret'");
+  }
+  appSecret = row.value;
+  if (isProd) console.warn("APP_SECRET is not set. Add it to the host's environment so the 2-step secrets are not stored next to their key.");
+}
+const needsMfaSetup = (u) => MFA_REQUIRED && !u.mfa_enabled;
+const publicUser = (u) => ({
+  id: u.id,
+  email: u.email,
+  name: u.name,
+  isAdmin: !!u.is_admin,
+  mustChange: !!u.must_change,
+  mfaSetup: needsMfaSetup(u) && !u.must_change,
+});
 
 async function audit(req, action, { projectId = null, fileId = null, detail = null } = {}) {
   try {
@@ -275,9 +300,9 @@ api.use((req, res, next) => {
 api.use(async (req, res, next) => {
   req.sessionToken = readCookie(req, "sid");
   req.user = await sessions.lookup(req.sessionToken);
-  if (req.user?.must_change && !req.path.startsWith("/auth/") && !req.path.startsWith("/s/") && !req.path.endsWith("/link-session")) {
-    return res.status(403).json({ error: "password_change_required" });
-  }
+  const exempt = req.path.startsWith("/auth/") || req.path.startsWith("/s/") || req.path.endsWith("/link-session");
+  if (req.user?.must_change && !exempt) return res.status(403).json({ error: "password_change_required" });
+  if (req.user && needsMfaSetup(req.user) && !exempt) return res.status(403).json({ error: "mfa_setup_required" });
   next();
 });
 api.use(csrfGuard);
@@ -366,12 +391,78 @@ api.post("/auth/login", async (req, res) => {
     return res.status(401).json({ error: "Incorrect email or password." });
   }
 
+  if (user.mfa_enabled) {
+    // right password: now ask for the code from the authenticator app. No session exists until that is right too.
+    return res.json({ mfaRequired: true, ticket: signTicket(user.id, appSecret) });
+  }
   userFailures.clear(userKey);
+  await startSession(req, res, user);
+});
+
+async function startSession(req, res, user) {
   const token = await sessions.create(user.id);
   res.cookie("sid", token, { httpOnly: true, sameSite: "lax", secure: req.secure, path: "/", maxAge: sessions.maxAgeMs });
   req.user = user;
   await audit(req, "login");
   res.json({ user: publicUser(user) });
+}
+
+const mfaFailures = createFailureLimiter({ max: 8, windowMs: 15 * 60 * 1000 });
+
+api.post("/auth/login/mfa", async (req, res) => {
+  const userId = readTicket(req.body?.ticket, appSecret);
+  if (!userId) return res.status(401).json({ error: "That sign-in timed out. Please start again.", restart: true });
+  const wait = Math.max(mfaFailures.blockedFor(userId), ipFailures.blockedFor(req.ip));
+  if (wait) return res.status(429).set("Retry-After", String(wait)).json({ error: `Too many wrong codes. Try again in ${Math.ceil(wait / 60)} minute(s).` });
+  const user = await userById(userId);
+  if (!user || user.disabled || !user.mfa_enabled) return res.status(401).json({ error: "That sign-in timed out. Please start again.", restart: true });
+
+  const code = String(req.body?.code ?? "");
+  let ok = false;
+  let usedRecovery = false;
+  const step = checkCode(decrypt(user.mfa_secret, appSecret), code, Number(user.mfa_last_step) || 0);
+  if (step) {
+    await db.run("UPDATE users SET mfa_last_step = $1 WHERE id = $2", [step, user.id]); // the same code can't be used twice
+    ok = true;
+  } else {
+    const left = useRecoveryCode(JSON.parse(user.mfa_recovery || "[]"), code);
+    if (left) {
+      await db.run("UPDATE users SET mfa_recovery = $1 WHERE id = $2", [JSON.stringify(left), user.id]);
+      ok = usedRecovery = true;
+    }
+  }
+  if (!ok) {
+    mfaFailures.fail(userId);
+    ipFailures.fail(req.ip);
+    await audit(Object.create(req, { user: { value: user } }), "mfa_failed", { detail: user.email });
+    return res.status(401).json({ error: "That code isn't right. Use the current 6-digit code from your authenticator app, or a recovery code." });
+  }
+  mfaFailures.clear(userId);
+  userFailures.clear(`${user.email}|${req.ip}`);
+  if (usedRecovery) await audit(Object.create(req, { user: { value: user } }), "mfa_recovery_used", { detail: user.email });
+  await startSession(req, res, user);
+});
+
+// Setting up the authenticator app: get a secret and QR code, then prove it works with a first code.
+api.post("/auth/mfa/setup", requireLogin, async (req, res) => {
+  const user = await userById(req.user.id);
+  if (user.mfa_enabled) return res.status(409).json({ error: "Two-step sign-in is already on for this account." });
+  const secret = newSecret();
+  await db.run("UPDATE users SET mfa_secret = $1 WHERE id = $2", [encrypt(secret, appSecret), user.id]);
+  const uri = otpauthUri(secret, user.email);
+  res.json({ secret: groupSecret(secret), qr: await QRCode.toDataURL(uri, { width: 240, margin: 1 }) });
+});
+
+api.post("/auth/mfa/enable", requireLogin, async (req, res) => {
+  const user = await userById(req.user.id);
+  if (user.mfa_enabled) return res.status(409).json({ error: "Two-step sign-in is already on for this account." });
+  if (!user.mfa_secret) return res.status(400).json({ error: "Start the setup again." });
+  const step = checkCode(decrypt(user.mfa_secret, appSecret), req.body?.code);
+  if (!step) return res.status(400).json({ error: "That code isn't right. Check the app shows the 6-digit code for this account and try the next one." });
+  const { codes, hashes } = newRecoveryCodes();
+  await db.run("UPDATE users SET mfa_enabled = 1, mfa_last_step = $1, mfa_recovery = $2 WHERE id = $3", [step, JSON.stringify(hashes), user.id]);
+  await audit(req, "mfa_enabled");
+  res.json({ recoveryCodes: codes });
 });
 
 api.post("/auth/logout", async (req, res) => {
@@ -409,6 +500,7 @@ const adminUserRow = (u) => ({
   isAdmin: !!u.is_admin,
   disabled: !!u.disabled,
   mustChange: !!u.must_change,
+  mfa: !!u.mfa_enabled,
   createdAt: u.created_at,
   projects: u.projects ?? 0,
 });
@@ -438,7 +530,7 @@ api.patch("/admin/users/:uid", requireSiteAdmin, async (req, res) => {
   const user = await userById(req.params.uid);
   if (!user) return res.status(404).json({ error: "User not found." });
   const isSelf = user.id === req.user.id;
-  const { name, isAdmin, disabled, resetPassword } = req.body ?? {};
+  const { name, isAdmin, disabled, resetPassword, resetMfa } = req.body ?? {};
   if (isSelf && (isAdmin === false || disabled === true)) {
     return res.status(400).json({ error: "You can't remove your own admin access or disable your own account." });
   }
@@ -457,7 +549,12 @@ api.patch("/admin/users/:uid", requireSiteAdmin, async (req, res) => {
     await db.run("UPDATE users SET pw_salt = $1, pw_hash = $2, must_change = 1 WHERE id = $3", [salt, hash, user.id]);
     await sessions.destroyAllForUser(user.id);
   }
-  await audit(req, "user_updated", { detail: `${user.email}${resetPassword ? " (password reset)" : ""}` });
+  if (resetMfa) {
+    // lost phone: they set up the authenticator app again at their next sign-in
+    await db.run("UPDATE users SET mfa_enabled = 0, mfa_secret = NULL, mfa_recovery = NULL, mfa_last_step = 0 WHERE id = $1", [user.id]);
+    await sessions.destroyAllForUser(user.id);
+  }
+  await audit(req, "user_updated", { detail: `${user.email}${resetPassword ? " (password reset)" : ""}${resetMfa ? " (2-step reset)" : ""}` });
   res.json({ user: adminUserRow(await userById(user.id)), tempPassword });
 });
 
@@ -1107,6 +1204,21 @@ api.get("/files/:fid/link", fileCtx, needRole("designer"), needFolder, loadFile,
   res.json({ url: linkFor(req, req.project), placement });
 });
 
+// A cap on how much one person (or one address, for people using the QR link) can pull out per hour. Normal use is far
+// below it; it stops a stolen account or link being used to copy a whole project quickly.
+const DOWNLOAD_LIMIT = Number(process.env.DOWNLOAD_LIMIT_PER_HOUR) || 400;
+const downloads = createFailureLimiter({ max: DOWNLOAD_LIMIT, windowMs: 60 * 60 * 1000 });
+function downloadBudget(req, res, next) {
+  const key = req.user ? `u:${req.user.id}` : `ip:${req.ip}`;
+  const wait = downloads.blockedFor(key);
+  if (wait) {
+    audit(req, "download_limit", { projectId: req.project?.id ?? null }).catch(() => {});
+    return res.status(429).set("Retry-After", String(wait)).json({ error: "That's a lot of files in a short time. Please wait a little and try again." });
+  }
+  downloads.fail(key); // counts this one
+  next();
+}
+
 // Viewer-role users (and link holders) may only read PDFs through the page's own scripts, not by opening the address directly.
 function blockDirectOpenForViewers(req, res, next) {
   if (req.role === "viewer") {
@@ -1121,13 +1233,13 @@ function blockDirectOpenForViewers(req, res, next) {
 
 const viaNote = (req) => (req.access.via === "link" ? " (via project link)" : "");
 
-api.get("/files/:fid/content", fileCtx, needRole("viewer"), needFolder, blockDirectOpenForViewers, loadFile, async (req, res) => {
+api.get("/files/:fid/content", fileCtx, needRole("viewer"), needFolder, blockDirectOpenForViewers, downloadBudget, loadFile, async (req, res) => {
   if (typeOf(req.entry.name) !== "pdf") return res.status(400).json({ error: "Only PDFs can be viewed here." });
   await audit(req, "file_viewed", { projectId: req.project.id, fileId: fileKey(req.project, req.folderKey, req.entry), detail: req.entry.name + viaNote(req) });
   await sendStream(res, await storage.read(req.ref, req.entry.id), { "Content-Type": "application/pdf", "Content-Disposition": "inline" });
 });
 
-api.get("/files/:fid/download", fileCtx, needRole("client"), needFolder, loadFile, async (req, res) => {
+api.get("/files/:fid/download", fileCtx, needRole("client"), needFolder, downloadBudget, loadFile, async (req, res) => {
   await audit(req, "file_downloaded", { projectId: req.project.id, fileId: fileKey(req.project, req.folderKey, req.entry), detail: req.entry.name });
   const content = await storage.read(req.ref, req.entry.id);
   res.attachment(req.entry.name);
@@ -1144,7 +1256,7 @@ function ifcAsset(kind, type) {
     await sendStream(res, await storage.cacheRead(req.ref, cacheNames(e)[kind]), { "Content-Type": type });
   };
 }
-api.get("/files/:fid/fragments", fileCtx, needRole("viewer"), needFolder, loadFile, ifcAsset("frag", "application/octet-stream"));
+api.get("/files/:fid/fragments", fileCtx, needRole("viewer"), needFolder, downloadBudget, loadFile, ifcAsset("frag", "application/octet-stream"));
 api.get("/files/:fid/properties", fileCtx, needRole("viewer"), needFolder, loadFile, ifcAsset("props", "application/json"));
 
 api.put("/files/:fid", fileCtx, needRole("designer"), needFolder, needRights, loadFile, uploadSingle, async (req, res) => {

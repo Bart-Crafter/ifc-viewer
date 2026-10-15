@@ -29,6 +29,7 @@ Add a custom domain **before** printing QR codes so the address never changes.
 | Variable | Purpose |
 |---|---|
 | `DATABASE_URL` | Postgres connection string. Without it a throwaway local database is used (development only). |
+| `APP_SECRET` | A long random value (Render can generate it). Encrypts the two-step sign-in secrets stored in the database. Keep it, and don't change it later or everyone has to set up their authenticator app again. See `docs/SECURITY.md`. |
 | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | The Microsoft app that reaches SharePoint. Without them files go to a local folder (development only). |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Create the first administrator when the database is empty. If `ADMIN_PASSWORD` is omitted a random one is printed in the logs and must be changed at first sign-in. |
 | `MAX_UPLOAD_MB` | Largest single upload (default 300). IFC conversion happens in memory, so big models need a bigger instance. |
