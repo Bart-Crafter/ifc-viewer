@@ -13,8 +13,7 @@ Pick **one** of the two options. Option A keeps everything inside Microsoft 365.
 About 15 minutes. Uses the same app registration as the SharePoint access (`Crafter Project Portal`).
 
 1. **Create a mailbox to send from**, for example `noreply@crafterengineering.co.uk`. A **shared mailbox** needs no licence. People don't need to read it; replies can go nowhere.
-2. **Entra admin centre → App registrations → Crafter Project Portal → API permissions → Add a permission → Microsoft Graph → Application permissions → `Mail.Send`**, then **Grant admin consent**.
-3. **Restrict that permission to the one mailbox. This step matters.** On its own `Mail.Send` lets the app send as *anyone in the company*. In Exchange Online PowerShell, limit it to the sending mailbox (use Microsoft's current "RBAC for Applications"; the older *Application Access Policy* does the same job):
+2. **Let the app send from that one mailbox only.** In Exchange Online PowerShell (Microsoft's "RBAC for Applications"; the full click-by-click version is in [ADMIN-SETUP-GUIDE.md](ADMIN-SETUP-GUIDE.md), Part C):
 
    ```powershell
    Connect-ExchangeOnline
@@ -24,9 +23,11 @@ About 15 minutes. Uses the same app registration as the SharePoint access (`Craf
    New-ManagementScope -Name "Portal sender mailbox" -RecipientRestrictionFilter "PrimarySmtpAddress -eq 'noreply@crafterengineering.co.uk'"
    # allow the app to send mail, but only from inside that scope
    New-ManagementRoleAssignment -App <enterprise app object id> -Role "Application Mail.Send" -CustomResourceScope "Portal sender mailbox"
+   Test-ServicePrincipalAuthorization -Identity <enterprise app object id> -Resource noreply@crafterengineering.co.uk
    ```
 
-   Then remove the broad Graph `Mail.Send` consent from step 2 if Microsoft's docs for your tenant say to (the role assignment above replaces it). Check afterwards that the app **can** send as `noreply@…` and **cannot** send as another person.
+   Do **not** also grant an unrestricted `Mail.Send` in Entra: it would let the app send as anyone in the company. If the first test email fails with "403", the fallback is to add the Graph application permission `Mail.Send` in Entra and restrict it with an *Application Access Policy* to a group containing only the sending mailbox.
+3. Check that the app **can** send as `noreply@…` and **cannot** send as another person.
 4. On the hosting service set `MAIL_FROM` to the mailbox address (e.g. `noreply@crafterengineering.co.uk`). The existing `AZURE_*` settings are reused; there is nothing else to add.
 
 ## Option B: send through Resend (resend.com)
