@@ -1,6 +1,6 @@
 # SharePoint setup for the Crafter project portal (for IT)
 
-> Also read **[SECURITY.md](SECURITY.md)**: the extra Microsoft 365 steps (monitoring, alerts, retention, restricting where the app can sign in from) that make this as safe as possible.
+> Also read **[SECURITY.md](SECURITY.md)** and, for the sign-in code emails, **[EMAIL-SETUP.md](EMAIL-SETUP.md)**: the extra Microsoft 365 steps (monitoring, alerts, retention, restricting where the app can sign in from) that make this as safe as possible.
 
 **What this is.** A website where clients sign in and see project files (PDF/DWG/IFC). The files stay in our SharePoint. The site reads and writes them through Microsoft Graph using **one app registration that can only see the specific folders you grant it**, never the whole tenant. Clients never get SharePoint access.
 

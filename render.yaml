@@ -22,8 +22,10 @@ services:
         sync: false
       - key: ADMIN_EMAIL # the first site administrator, created when the database is empty
         sync: false
-      - key: APP_SECRET # generated for you; encrypts the 2-step secrets stored in the database. Keep it.
+      - key: APP_SECRET # generated for you; signs the sign-in steps. Keep it.
         generateValue: true
+      - key: MAIL_FROM # mailbox the sign-in code emails come from: docs/EMAIL-SETUP.md
+        sync: false
       - key: ADMIN_PASSWORD # generated for you; read it in the service's Environment tab
         generateValue: true
       - key: AZURE_TENANT_ID # from IT: docs/IT-SETUP-SHAREPOINT.md

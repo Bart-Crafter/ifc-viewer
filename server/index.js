@@ -10,7 +10,8 @@ import { fileURLToPath } from "node:url";
 import { nanoid } from "nanoid";
 import QRCode from "qrcode";
 import { stampQr, cleanPlacement } from "./stamp.js";
-import { newSecret, checkCode, otpauthUri, groupSecret, newRecoveryCodes, useRecoveryCode, encrypt, decrypt, signTicket, readTicket } from "./mfa.js";
+import { CODE_MINUTES, MAX_GUESSES, newCode, hashCode, sameHash, maskEmail, signTicket, readTicket } from "./twostep.js";
+import { createMailer } from "./mailer.js";
 import { openDb } from "./db.js";
 import { FOLDERS, FOLDER_KEYS, REGISTER_NAME, ROLES, createRegister, editRegister, parseRegister } from "./register.js";
 import { createBackend } from "./storage-backends/index.js";
@@ -50,25 +51,33 @@ console.log(`File storage: ${storage.kind === "sharepoint" ? "SharePoint (Micros
 
 const now = () => new Date().toISOString();
 
-// Two-step sign-in (authenticator app) is required for staff: site administrators and anyone who is a Designer or Admin
-// on at least one project. Clients and viewers sign in with a password only (and are limited to viewing/downloading).
-// MFA_REQUIRED=0 switches the requirement off (local testing only); MFA_REQUIRED=all requires it of everyone.
+// Two-step sign-in by email is required for staff: site administrators and anyone who is a Designer or Admin on at least
+// one project. Clients and viewers sign in with a password only (and are limited to viewing/downloading).
+// MFA_REQUIRED=0 switches it off (local testing only); MFA_REQUIRED=all requires it of everyone.
 const MFA_REQUIRED = process.env.MFA_REQUIRED !== "0";
 const MFA_FOR_ALL = process.env.MFA_REQUIRED === "all";
-// Key that protects the authenticator secrets stored in the database. Set APP_SECRET on the host; if it isn't set one is
-// generated and kept in the database, which still works but a copy of the database would then include the key.
+const mailer = createMailer(process.env, { isProd });
+// While the site is only being tried out (files in a temporary local folder, no real data) and email isn't set up yet,
+// signing in works with just a password. As soon as SharePoint is connected, the email code is enforced.
+const TWO_STEP_ON = MFA_REQUIRED && (!!mailer || storage.kind === "sharepoint");
+if (MFA_REQUIRED && !TWO_STEP_ON) console.warn("Two-step sign-in is OFF: email isn't set up and the site is in test mode (temporary file storage). It switches on automatically once SharePoint is connected; set up email first (docs/EMAIL-SETUP.md).");
+if (TWO_STEP_ON) {
+  if (mailer) console.log(`Two-step sign-in: codes are sent by ${mailer.kind === "graph" ? "Microsoft 365 email" : mailer.kind === "resend" ? "Resend" : "the server log (development only)"}.`);
+  else console.error("Two-step sign-in is required but no email service is set up (MAIL_FROM plus the Microsoft app or RESEND_API_KEY). Staff cannot sign in until it is. See docs/EMAIL-SETUP.md.");
+}
+// Key that signs the sign-in steps and the codes. Set APP_SECRET on the host; if it isn't set, one is generated and kept in
+// the database, which works but is weaker.
 let appSecret = process.env.APP_SECRET;
 if (!appSecret) {
   let row = await db.one("SELECT value FROM app_settings WHERE key = 'app_secret'");
   if (!row) {
-    row = { value: crypto.randomBytes(32).toString("base64url") };
-    await db.run("INSERT INTO app_settings (key, value) VALUES ('app_secret', $1) ON CONFLICT (key) DO NOTHING", [row.value]);
+    await db.run("INSERT INTO app_settings (key, value) VALUES ('app_secret', $1) ON CONFLICT (key) DO NOTHING", [crypto.randomBytes(32).toString("base64url")]);
     row = await db.one("SELECT value FROM app_settings WHERE key = 'app_secret'");
   }
   appSecret = row.value;
-  if (isProd) console.warn("APP_SECRET is not set. Add it to the host's environment so the 2-step secrets are not stored next to their key.");
+  if (isProd) console.warn("APP_SECRET is not set. Add it to the host's environment.");
 }
-const needsMfaSetup = (u) => MFA_REQUIRED && !u.mfa_enabled && (MFA_FOR_ALL || !!u.is_staff);
+const needsTwoStep = (u) => TWO_STEP_ON && (MFA_FOR_ALL || !!u.is_staff);
 const isStaff = async (u) =>
   !!u.is_admin || !!(await db.one("SELECT 1 AS x FROM register_index WHERE email = $1 AND role IN ('designer', 'admin') LIMIT 1", [u.email]));
 const publicUser = (u) => ({
@@ -77,7 +86,6 @@ const publicUser = (u) => ({
   name: u.name,
   isAdmin: !!u.is_admin,
   mustChange: !!u.must_change,
-  mfaSetup: needsMfaSetup(u) && !u.must_change,
 });
 
 async function audit(req, action, { projectId = null, fileId = null, detail = null } = {}) {
@@ -305,9 +313,12 @@ api.use((req, res, next) => {
 api.use(async (req, res, next) => {
   req.sessionToken = readCookie(req, "sid");
   req.user = await sessions.lookup(req.sessionToken);
+  if (req.user && needsTwoStep(req.user) && !req.user.two_step) {
+    await sessions.destroy(req.sessionToken); // staff must have passed the email code: ask them to sign in again
+    req.user = null;
+  }
   const exempt = req.path.startsWith("/auth/") || req.path.startsWith("/s/") || req.path.endsWith("/link-session");
   if (req.user?.must_change && !exempt) return res.status(403).json({ error: "password_change_required" });
-  if (req.user && needsMfaSetup(req.user) && !exempt) return res.status(403).json({ error: "mfa_setup_required" });
   next();
 });
 api.use(csrfGuard);
@@ -396,79 +407,100 @@ api.post("/auth/login", async (req, res) => {
     return res.status(401).json({ error: "Incorrect email or password." });
   }
 
-  if (user.mfa_enabled) {
-    // right password: now ask for the code from the authenticator app. No session exists until that is right too.
-    return res.json({ mfaRequired: true, ticket: signTicket(user.id, appSecret) });
+  user.is_staff = await isStaff(user);
+  if (needsTwoStep(user)) {
+    // Right password. Now an emailed code has to be entered too; no session exists until it is.
+    if (!mailer) return res.status(503).json({ error: "Sign-in by email isn't set up yet. Ask the administrator." });
+    try {
+      const ticket = await sendLoginCode(req, user);
+      userFailures.clear(userKey);
+      return res.json({ codeRequired: true, ticket, sentTo: maskEmail(user.email) });
+    } catch (err) {
+      return codeSendProblem(res, err);
+    }
   }
   userFailures.clear(userKey);
-  await startSession(req, res, user);
+  await startSession(req, res, user, false);
 });
 
-async function startSession(req, res, user) {
-  user.is_staff = await isStaff(user);
-  const token = await sessions.create(user.id);
+async function startSession(req, res, user, twoStep) {
+  const token = await sessions.create(user.id, twoStep);
   res.cookie("sid", token, { httpOnly: true, sameSite: "lax", secure: req.secure, path: "/", maxAge: sessions.maxAgeMs });
   req.user = user;
-  await audit(req, "login");
+  await audit(req, "login", { detail: twoStep ? "with email code" : null });
   res.json({ user: publicUser(user) });
 }
 
-const mfaFailures = createFailureLimiter({ max: 8, windowMs: 15 * 60 * 1000 });
+// ---------- the emailed sign-in code ----------
+const codeSends = createFailureLimiter({ max: Number(process.env.CODE_EMAILS_PER_15_MIN) || 5, windowMs: 15 * 60 * 1000 }); // codes per person, so the form can't be used to flood an inbox
 
-api.post("/auth/login/mfa", async (req, res) => {
-  const userId = readTicket(req.body?.ticket, appSecret);
-  if (!userId) return res.status(401).json({ error: "That sign-in timed out. Please start again.", restart: true });
-  const wait = Math.max(mfaFailures.blockedFor(userId), ipFailures.blockedFor(req.ip));
+async function sendLoginCode(req, user) {
+  if (codeSends.blockedFor(user.id)) throw Object.assign(new Error("limit"), { limited: true });
+  codeSends.fail(user.id); // counts this one
+  const code = newCode();
+  const id = nanoid(16);
+  await db.run("DELETE FROM login_codes WHERE user_id = $1", [user.id]); // only the newest code works
+  await db.run("INSERT INTO login_codes (id, user_id, code_hash, expires_at, attempts) VALUES ($1,$2,$3,$4,0)", [
+    id,
+    user.id,
+    hashCode(code, id, appSecret),
+    Date.now() + CODE_MINUTES * 60 * 1000,
+  ]);
+  try {
+    await mailer.send({
+      to: user.email,
+      subject: `Your Crafter Engineering sign-in code: ${code}`,
+      text: `Your sign-in code is ${code}\n\nIt works once and expires in ${CODE_MINUTES} minutes.\n\nSomeone entered your password at ${new Date().toUTCString()} (address ${req.ip}). If that wasn't you, don't share this code, and tell your administrator so your password can be reset.`,
+    });
+  } catch (err) {
+    await db.run("DELETE FROM login_codes WHERE id = $1", [id]);
+    throw err;
+  }
+  return signTicket(id, appSecret);
+}
+
+function codeSendProblem(res, err) {
+  if (err.limited) return res.status(429).json({ error: "Too many codes requested. Please wait a few minutes and try again." });
+  console.error("Could not send the sign-in code:", err.message);
+  return res.status(503).json({ error: "We couldn't send the code just now. Please try again in a moment, or tell the administrator." });
+}
+
+api.post("/auth/login/resend", async (req, res) => {
+  const id = readTicket(req.body?.ticket, appSecret);
+  const row = id && (await db.one("SELECT user_id FROM login_codes WHERE id = $1", [id]));
+  const user = row && (await userById(row.user_id));
+  if (!user || user.disabled || !mailer) return res.status(401).json({ error: "That sign-in timed out. Please start again.", restart: true });
+  try {
+    res.json({ ticket: await sendLoginCode(req, user), sentTo: maskEmail(user.email) });
+  } catch (err) {
+    codeSendProblem(res, err);
+  }
+});
+
+api.post("/auth/login/code", async (req, res) => {
+  const id = readTicket(req.body?.ticket, appSecret);
+  const restart = { error: "That sign-in timed out. Please start again.", restart: true };
+  if (!id) return res.status(401).json(restart);
+  const wait = ipFailures.blockedFor(req.ip);
   if (wait) return res.status(429).set("Retry-After", String(wait)).json({ error: `Too many wrong codes. Try again in ${Math.ceil(wait / 60)} minute(s).` });
-  const user = await userById(userId);
-  if (!user || user.disabled || !user.mfa_enabled) return res.status(401).json({ error: "That sign-in timed out. Please start again.", restart: true });
+  const row = await db.one("SELECT * FROM login_codes WHERE id = $1", [id]);
+  if (!row || row.expires_at < Date.now()) return res.status(401).json(restart);
+  const user = await userById(row.user_id);
+  if (!user || user.disabled) return res.status(401).json(restart);
 
-  const code = String(req.body?.code ?? "");
-  let ok = false;
-  let usedRecovery = false;
-  const step = checkCode(decrypt(user.mfa_secret, appSecret), code, Number(user.mfa_last_step) || 0);
-  if (step) {
-    await db.run("UPDATE users SET mfa_last_step = $1 WHERE id = $2", [step, user.id]); // the same code can't be used twice
-    ok = true;
-  } else {
-    const left = useRecoveryCode(JSON.parse(user.mfa_recovery || "[]"), code);
-    if (left) {
-      await db.run("UPDATE users SET mfa_recovery = $1 WHERE id = $2", [JSON.stringify(left), user.id]);
-      ok = usedRecovery = true;
-    }
-  }
-  if (!ok) {
-    mfaFailures.fail(userId);
+  if (!sameHash(hashCode(req.body?.code, id, appSecret), row.code_hash)) {
     ipFailures.fail(req.ip);
-    await audit(Object.create(req, { user: { value: user } }), "mfa_failed", { detail: user.email });
-    return res.status(401).json({ error: "That code isn't right. Use the current 6-digit code from your authenticator app, or a recovery code." });
+    await audit(Object.create(req, { user: { value: user } }), "code_failed", { detail: user.email });
+    if (row.attempts + 1 >= MAX_GUESSES) {
+      await db.run("DELETE FROM login_codes WHERE id = $1", [id]); // five wrong tries: that code is dead, start again
+      return res.status(401).json({ error: "Too many wrong codes. Please sign in again to get a new one.", restart: true });
+    }
+    await db.run("UPDATE login_codes SET attempts = attempts + 1 WHERE id = $1", [id]);
+    return res.status(401).json({ error: "That code isn't right. Check the latest email and try again." });
   }
-  mfaFailures.clear(userId);
-  userFailures.clear(`${user.email}|${req.ip}`);
-  if (usedRecovery) await audit(Object.create(req, { user: { value: user } }), "mfa_recovery_used", { detail: user.email });
-  await startSession(req, res, user);
-});
-
-// Setting up the authenticator app: get a secret and QR code, then prove it works with a first code.
-api.post("/auth/mfa/setup", requireLogin, async (req, res) => {
-  const user = await userById(req.user.id);
-  if (user.mfa_enabled) return res.status(409).json({ error: "Two-step sign-in is already on for this account." });
-  const secret = newSecret();
-  await db.run("UPDATE users SET mfa_secret = $1 WHERE id = $2", [encrypt(secret, appSecret), user.id]);
-  const uri = otpauthUri(secret, user.email);
-  res.json({ secret: groupSecret(secret), qr: await QRCode.toDataURL(uri, { width: 240, margin: 1 }) });
-});
-
-api.post("/auth/mfa/enable", requireLogin, async (req, res) => {
-  const user = await userById(req.user.id);
-  if (user.mfa_enabled) return res.status(409).json({ error: "Two-step sign-in is already on for this account." });
-  if (!user.mfa_secret) return res.status(400).json({ error: "Start the setup again." });
-  const step = checkCode(decrypt(user.mfa_secret, appSecret), req.body?.code);
-  if (!step) return res.status(400).json({ error: "That code isn't right. Check the app shows the 6-digit code for this account and try the next one." });
-  const { codes, hashes } = newRecoveryCodes();
-  await db.run("UPDATE users SET mfa_enabled = 1, mfa_last_step = $1, mfa_recovery = $2 WHERE id = $3", [step, JSON.stringify(hashes), user.id]);
-  await audit(req, "mfa_enabled");
-  res.json({ recoveryCodes: codes });
+  await db.run("DELETE FROM login_codes WHERE user_id = $1", [user.id]); // used: it can't be used again
+  user.is_staff = await isStaff(user);
+  await startSession(req, res, user, true);
 });
 
 api.post("/auth/logout", async (req, res) => {
@@ -506,7 +538,6 @@ const adminUserRow = (u) => ({
   isAdmin: !!u.is_admin,
   disabled: !!u.disabled,
   mustChange: !!u.must_change,
-  mfa: !!u.mfa_enabled,
   staff: !!u.is_staff,
   createdAt: u.created_at,
   projects: u.projects ?? 0,
@@ -538,7 +569,7 @@ api.patch("/admin/users/:uid", requireSiteAdmin, async (req, res) => {
   const user = await userById(req.params.uid);
   if (!user) return res.status(404).json({ error: "User not found." });
   const isSelf = user.id === req.user.id;
-  const { name, isAdmin, disabled, resetPassword, resetMfa } = req.body ?? {};
+  const { name, isAdmin, disabled, resetPassword } = req.body ?? {};
   if (isSelf && (isAdmin === false || disabled === true)) {
     return res.status(400).json({ error: "You can't remove your own admin access or disable your own account." });
   }
@@ -557,12 +588,7 @@ api.patch("/admin/users/:uid", requireSiteAdmin, async (req, res) => {
     await db.run("UPDATE users SET pw_salt = $1, pw_hash = $2, must_change = 1 WHERE id = $3", [salt, hash, user.id]);
     await sessions.destroyAllForUser(user.id);
   }
-  if (resetMfa) {
-    // lost phone: they set up the authenticator app again at their next sign-in
-    await db.run("UPDATE users SET mfa_enabled = 0, mfa_secret = NULL, mfa_recovery = NULL, mfa_last_step = 0 WHERE id = $1", [user.id]);
-    await sessions.destroyAllForUser(user.id);
-  }
-  await audit(req, "user_updated", { detail: `${user.email}${resetPassword ? " (password reset)" : ""}${resetMfa ? " (2-step reset)" : ""}` });
+  await audit(req, "user_updated", { detail: `${user.email}${resetPassword ? " (password reset)" : ""}` });
   res.json({ user: adminUserRow(await userById(user.id)), tempPassword });
 });
 

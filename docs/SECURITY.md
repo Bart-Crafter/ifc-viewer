@@ -12,14 +12,14 @@ If any one door is left weak, the others don't help. This page lists what the co
 
 | Protection | Detail |
 | --- | --- |
-| **Two-step sign-in for all staff** | Required for site admins and anyone who is a Designer or Admin on any project (clients and viewers sign in with a password only, and are limited to viewing/downloading). Password **and** a 6-digit code from an authenticator app (Microsoft Authenticator, Google Authenticator, 1Password…). Set up at first sign-in; ten one-time recovery codes are shown once. Each code works only once. Authenticator secrets are encrypted in the database with `APP_SECRET`. A site admin can **Reset 2-step** for a lost phone. Switch off only for local testing with `MFA_REQUIRED=0`. |
+| **Two-step sign-in for all staff** | Required for site admins and anyone who is a Designer or Admin on any project (clients and viewers sign in with a password only, and are limited to viewing/downloading). After the password, a **6-digit code is emailed** to the person: it works once, expires in 10 minutes, five wrong tries cancel it, and no more than 5 codes can be requested per person per 15 minutes. A staff session that has not passed the email step is refused, even if someone is promoted to Designer part-way through. Set up once: [EMAIL-SETUP.md](EMAIL-SETUP.md). Emailed codes are weaker than an authenticator app (anyone who can read the person's mailbox gets the code), so staff mailboxes must themselves be protected by Microsoft 365 multi-factor authentication. |
 | Passwords | Hashed with scrypt, 10+ characters, temporary passwords must be changed, 5 wrong tries per account and 30 per address per 15 minutes then a lock-out. Wrong-code guessing is locked out separately (8 tries). |
 | Sessions | Random tokens stored only as hashes, HttpOnly cookie, `Secure` over HTTPS, 7-day sliding expiry, all other sessions ended when a password changes or an account is disabled. |
 | Access rules | Decided by the project's `Project Access.xlsx` (read live, fails closed): per person, per folder. A viewer can't download; clients can't upload; only designers/admins can change files. |
 | **Download cap** | One account (or one address, for QR-link users) can fetch at most **400 files per hour** (`DOWNLOAD_LIMIT_PER_HOUR`). Normal use is far below it; it stops a stolen account or link being used to copy a whole project quickly. Hitting it is written to the activity log. |
 | Quick-send links | Expire after 3 days, can be cancelled, give access to the chosen files only, stored only as hashes. |
 | Browser protections | Content-Security-Policy, no framing, HSTS, no sniffing, cross-site request protection on every change. |
-| Audit log | Sign-ins (good and bad), 2-step events, uploads, replacements, deletions, link resets, access changes, rate-limit hits. |
+| Audit log | Sign-ins (good and bad, and whether an email code was used), wrong codes, uploads, replacements, deletions, link resets, access changes, rate-limit hits. |
 | Files | Never public on the internet: every byte goes through an access check. Deleted files go to the SharePoint recycle bin; replaced files keep their old version. |
 | Updates | Known-vulnerable packages are patched (`npm audit` shows only 2 moderate findings in `exceljs → uuid`, which only matters for a feature the site doesn't use). Enable GitHub **Dependabot** so this stays true. |
 
@@ -44,7 +44,7 @@ Do these in order of importance.
 - **Turn on two-step sign-in for every account** on Render, Neon and GitHub, for every person who has one. Whoever controls these can read the portal's secrets.
 - Keep the number of people with Render dashboard access to two or three: its environment page shows the Microsoft client secret in plain text.
 - On GitHub: require a pull request and two-step sign-in for changes to `main`, switch on *secret scanning* and *Dependabot*. Never paste secrets into the repository.
-- Set `APP_SECRET` (a long random value, Render can generate it) so the authenticator secrets are not stored next to their key. `render.yaml` already asks for it.
+- Set `APP_SECRET` (a long random value, Render can generate it). `render.yaml` already asks for it.
 - When someone leaves: remove them from Render, GitHub, Neon and the project access lists, and rotate the client secret.
 
 ## 4. The QR code is a "key" that gets printed
@@ -63,13 +63,15 @@ In this order (each step takes under a minute):
 2. Render → **Suspend** the service.
 3. Check *Entra service principal sign-ins* and the Purview audit search for anything unexpected.
 4. Restore changed or deleted files from the SharePoint recycle bin or version history.
-5. Create a new secret, reset the project links, reset passwords and 2-step for the accounts involved, then resume.
+5. Create a new secret, reset the project links, reset passwords for the accounts involved, then resume.
 
 ## Settings reference
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `MFA_REQUIRED` | staff | Unset: required for site admins and project Designers/Admins. `all`: required for every account. `0`: off (local testing only). |
-| `APP_SECRET` | generated and stored in the database if missing | Key that encrypts the authenticator secrets. Set it on the host. |
+| `MFA_REQUIRED` | staff | Unset: email code required for site admins and project Designers/Admins. `all`: required for every account. `0`: off (local testing only). |
+| `APP_SECRET` | generated and stored in the database if missing | Signs the sign-in steps. Set it on the host. |
+| `MAIL_FROM`, `RESEND_API_KEY` | none | Where the sign-in code emails come from (see [EMAIL-SETUP.md](EMAIL-SETUP.md)). |
+| `CODE_EMAILS_PER_15_MIN` | 5 | Sign-in codes one person can request per 15 minutes. |
 | `DOWNLOAD_LIMIT_PER_HOUR` | 400 | Files one account or address can fetch per hour. |
 | `SHARE_DAYS` | 3 | Fixed at 3 in production. |

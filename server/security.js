@@ -36,13 +36,14 @@ export function createSessions(db) {
   setInterval(() => db.run("DELETE FROM sessions WHERE expires_at <= $1", [Date.now()]).catch(() => {}), 60 * 60 * 1000).unref();
 
   return {
-    async create(userId) {
+    async create(userId, twoStep = false) {
       const token = crypto.randomBytes(32).toString("base64url");
-      await db.run("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES ($1,$2,$3,$4)", [
+      await db.run("INSERT INTO sessions (token_hash, user_id, created_at, expires_at, two_step) VALUES ($1,$2,$3,$4,$5)", [
         sha(token),
         userId,
         new Date().toISOString(),
         Date.now() + SESSION_MS,
+        twoStep ? 1 : 0,
       ]);
       return token;
     },
@@ -50,9 +51,9 @@ export function createSessions(db) {
       if (!token) return null;
       const hash = sha(token);
       const row = await db.one(
-        `SELECT u.id, u.email, u.name, u.is_admin, u.must_change, u.mfa_enabled,
+        `SELECT u.id, u.email, u.name, u.is_admin, u.must_change,
                 CASE WHEN u.is_admin = 1 OR EXISTS (SELECT 1 FROM register_index r WHERE r.email = u.email AND r.role IN ('designer', 'admin')) THEN 1 ELSE 0 END AS is_staff,
-                s.expires_at
+                s.expires_at, s.two_step
            FROM sessions s JOIN users u ON u.id = s.user_id
           WHERE s.token_hash = $1 AND s.expires_at > $2 AND u.disabled = 0`,
         [hash, Date.now()]

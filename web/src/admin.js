@@ -1,4 +1,4 @@
-import { api, esc, fmtDate, loadMe, loginCard, newProjectFormHtml, newProjectPayload, passwordChangeModal, mfaSetupModal, showSecret, toast, topbarHtml, wireTopbar } from "./common.js";
+import { api, esc, fmtDate, loadMe, loginCard, newProjectFormHtml, newProjectPayload, passwordChangeModal, showSecret, toast, topbarHtml, wireTopbar } from "./common.js";
 
 const app = document.getElementById("app");
 let me = null;
@@ -25,12 +25,11 @@ async function render() {
                     ${u.isAdmin ? '<span class="badge role-admin">Site admin</span> ' : ""}
                     ${u.disabled ? '<span class="badge bad">Disabled</span> ' : ""}
                     ${u.mustChange ? '<span class="badge warn" title="Hasn\'t chosen their own password yet">Temp password</span>' : ""}
-                    ${u.mfa ? '<span class="badge ok" title="Signs in with a password and an authenticator app code">2-step on</span>' : u.staff ? '<span class="badge warn" title="Will be asked to set up the authenticator app at next sign-in">2-step not set up</span>' : ""}
+                    ${u.staff ? '<span class="badge ok" title="Staff sign in with their password and a code emailed to them">Email code at sign-in</span>' : ""}
                   </td>
                   <td>${u.projects}</td>
                   <td class="row-actions">
                     <button type="button" class="secondary small" data-act="reset" data-id="${u.id}">Reset password</button>
-                    ${u.mfa ? `<button type="button" class="secondary small" data-act="resetmfa" data-id="${u.id}" title="For a lost phone: they set up the app again at their next sign-in">Reset 2-step</button>` : ""}
                     <button type="button" class="secondary small" data-act="${u.disabled ? "enable" : "disable"}" data-id="${u.id}" ${u.id === me.id ? "disabled" : ""}>${u.disabled ? "Enable" : "Disable"}</button>
                     <button type="button" class="secondary small" data-act="${u.isAdmin ? "demote" : "promote"}" data-id="${u.id}" ${u.id === me.id ? "disabled" : ""}>${u.isAdmin ? "Remove site admin" : "Make site admin"}</button>
                     <button type="button" class="secondary small danger" data-act="delete" data-id="${u.id}" ${u.id === me.id ? "disabled" : ""}>Delete</button>
@@ -106,9 +105,6 @@ async function render() {
           await render();
           showSecret({ title: `New temporary password for ${user.email}`, intro: "Their temporary password:", secret: result.tempPassword });
           return;
-        } else if (act === "resetmfa") {
-          if (!confirm(`Reset two-step sign-in for ${user.email}? They'll be signed out and set up the authenticator app again at their next sign-in. Only do this once you are sure it is really them asking.`)) return;
-          await api(`/api/admin/users/${user.id}`, { method: "PATCH", json: { resetMfa: true } });
         } else {
           const json = { disable: { disabled: true }, enable: { disabled: false }, promote: { isAdmin: true }, demote: { isAdmin: false } }[act];
           await api(`/api/admin/users/${user.id}`, { method: "PATCH", json });
@@ -127,8 +123,6 @@ if (!me) {
   app.querySelector("#login").append(loginCard({ title: "Sign in", onSuccess: () => location.reload() }));
 } else if (me.mustChange) {
   passwordChangeModal();
-} else if (me.mfaSetup) {
-  mfaSetupModal();
 } else if (!me.isAdmin) {
   app.innerHTML = `${topbarHtml(me)}<div class="page"><h1>Administration</h1><p class="muted">This page is only for site administrators.</p></div>`;
   wireTopbar(app);
